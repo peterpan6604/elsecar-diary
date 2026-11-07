@@ -20,7 +20,7 @@ Clickable mock-up: https://claude.ai/artifact/TtnaBV9yYDY44d6ZJBkP4C
 | Account | Everything runs on the `elsecarsportsandsocialclub1854` Google account, same as the clocking system |
 | Access | One shared code. Each person types their first name, which is used only for the change log. Logged in for 30 days. Changing the code logs everyone out |
 | Committee entry point | Separate link saved to phone home screens, plus a small "Committee" link on the website |
-| Public bookings | Function room only. **Instant booking** (changed 1 Nov 2026, see "Online booking rules" below) |
+| Public bookings | Function room only. **Request and approve** (changed 7 Nov 2026, see "Booking request rules" below). Replaces the instant booking agreed on 1 Nov 2026 |
 | Deposit | None |
 | Prices | None yet; a price list comes later |
 | Booking alerts | Emailed to **all** committee addresses (listed in the Settings tab) |
@@ -28,30 +28,31 @@ Clickable mock-up: https://claude.ai/artifact/TtnaBV9yYDY44d6ZJBkP4C
 | Clash checks | Function room bookings only. Cricket fixtures never clash (separate venue) |
 | Existing diary to migrate | None |
 
-## Online booking rules (agreed 1 Nov 2026)
+## Booking request rules (decided 7 Nov 2026)
+
+Pete decided on 7 Nov 2026 to use **request and approve** instead of instant booking, because it is less to build and less to go wrong. The instant booking design agreed on 1 Nov 2026 (email confirm link, 24 hour hold, customer cancel link, 7 day reminder, .ics invite) is dropped.
 
 **Sessions:** Afternoon 12pm to 5pm, Evening 6pm to midnight, or Whole day (both). Two bookings a day are possible.
 
 **Flow:**
-1. The customer picks a free date and session and fills in the form.
-2. The session is **held** and an email goes out with a "Confirm my booking" link. If they don't click it within 24 hours, the hold is released automatically.
-3. When they click, the booking is **confirmed instantly**. They get a confirmation email with the hire terms, a calendar invite (.ics) and a "Cancel my booking" link. All committee emails get an alert.
-4. A **bar cover reminder** is added to the committee diary automatically (Bar & staffing, same session).
-5. **7 days before**, a reminder email asks them to confirm it's still going ahead, with the cancel link.
+1. On the public page the customer picks a date and session and fills in the request form: name, phone, email, date, session, type of event, guest numbers and a message.
+2. The request is saved in the Bookings tab as **Pending**. The customer gets an email saying it is a request, not a booking. Every committee address in Settings gets an alert (no contact details in it).
+3. A pending request does **not** block the session on the public page. The committee page shows a clash warning if two requests, or a request and a booking, want the same session.
+4. **Approve** (committee page): the server checks the session is still free, adds a "Private party" event (room tag, no contact details) and a **bar cover reminder** (Bar & staffing, same session) to the diary, and emails the customer a confirmation with the hire terms link from Settings (or says the club will send the terms).
+5. **Decline** (committee page): optional reason, emailed to the customer.
+6. **Cancel** an approved booking (committee page): reason required, emailed to the customer. The booking and its bar cover reminder are removed from the diary.
 
-**Safeguards:**
+**Safeguards (all checked on the server):**
 
 | Rule | Setting |
 |---|---|
-| Minimum notice | 7 days. Shorter notice is refused, except funeral wakes, which become a request |
+| Minimum notice | 7 days. Funeral wakes can be requested from tomorrow |
 | Furthest ahead | 12 months |
-| One booking at a time | 1 upcoming booking per email or phone number |
-| Needs committee approval | 18th and 21st birthdays, and short notice wakes |
-| Guests | Maximum 75 (fire limit), refused above that |
-| Committee blocks | Any diary item ticked "Uses the function room" blocks its session |
-| Committee cancels | Any booking, with a reason that's emailed to the customer. The bar cover reminder is removed |
-
-**Approval:** Needs approval items appear in the committee view with Approve and Decline. Approve confirms the booking and adds bar cover. Decline releases the session.
+| Guests | Maximum 75 (fire limit). The Settings tab can lower it, never raise it |
+| Session must be free | No approved booking and no committee item ticked "Uses the function room" |
+| Spam | Hidden spam field, a 3 second minimum to fill in the form, 3 requests per device and 20 club-wide every 6 hours, 2 open requests per email address |
+| Online bookings in the diary | Can't be edited or deleted as ordinary items. Use Cancel so the customer is told |
+| Contact details | In the Bookings tab and on the signed-in committee page only. Removed 6 months after the event (monthly job) |
 
 ## Architecture
 
@@ -99,9 +100,9 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 | # | Stage | Status |
 |---|---|---|
 | 0 | Club prep: Play-Cricket API token and site ID, committee emails, room capacity, hire terms, choose the code | **Waiting on club** |
-| 1 | Backend: calendar, sheet, login, read, add/edit/delete, change log, public read | **Code written, not yet deployed** (`apps-script/Code.gs`, `SETUP.md`) |
-| 2 | Committee view (real page from the mock-up), phone subscription and guide | **Built, tested in demo mode, not yet live.** `committee.html` (try `?demo=1`), `COMMITTEE-GUIDE.md`. Needs stage 1 deployed and the `/exec` URL in `config.js` |
-| 3 | Public view, instant booking by session (email confirm link, 24 hour hold, safeguards), emails and .ics, bar cover, approvals, cancel links, 7 day reminder, spam protection, data clean-up | To do (about 1.5 to 2 days, up from 1 to 1.5) |
+| 1 | Backend: calendar, sheet, login, read, add/edit/delete, change log, public read | **Live** on the club account (`apps-script/Code.gs`, `SETUP.md`) |
+| 2 | Committee view (real page from the mock-up), phone subscription and guide | **Live** on GitHub Pages (`committee.html`, `COMMITTEE-GUIDE.md`) |
+| 3 | Public view, booking **requests** by session, committee approve / decline / cancel, emails, bar cover, spam protection, data clean-up | **Built on branch `stage3-requests`, tested in demo mode, not yet live.** `index.html` (try `?demo=1`), `EMBED.md`. Needs the new `Code.gs` pasted in, `setupStage3` run, and a review before release |
 | 4 | Play-Cricket daily sync | To do (needs the token) |
 | 5 | Embed on the website, committee test, security check, handover notes | To do |
 
@@ -109,5 +110,5 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 
 - Play-Cricket API token and site ID: Pete is chasing these.
 - Room capacity: **75** (confirmed 1 Nov 2026).
-- Hire terms: draft in `HIRE-TERMS.md`. The committee needs to fill in the **[confirm]** items. It becomes a terms page linked from the booking form in stage 3.
+- Hire terms: draft in `HIRE-TERMS.md`. The committee needs to fill in the **[confirm]** items. Once agreed, put its web link in the Settings tab ("Hire terms link"). It then shows on the request form and in confirmation emails.
 - Committee emails: Pete is dropping the list into `private/` (excluded from git).

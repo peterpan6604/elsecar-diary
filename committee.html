@@ -14,12 +14,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Roboto+Serif:opsz,wght@8..144,700;8..144,800&display=swap">
-<link rel="stylesheet" href="committee.css?v=1">
+<link rel="stylesheet" href="committee.css?v=2">
 </head>
 <body>
 
 <div class="demobar" id="demoBar" hidden>
-  <div class="wrap"><b>DEMO MODE.</b> Sample events only. Nothing here is saved to the real club diary, and it resets when you refresh. Use the code <b>demo</b>.</div>
+  <div class="wrap"><b>DEMO MODE.</b> Sample events only. Nothing here touches the real club diary. Use the code <b>demo</b>. Requests sent from the <a href="index.html?demo=1">public demo</a> in this browser appear here. <button type="button" class="linkbtn" id="demoReset">Reset the demo</button></div>
 </div>
 
 <header class="band">
@@ -105,6 +105,8 @@
 <div id="toastRoot" aria-live="polite"></div>
 
 <script src="config.js?v=1"></script>
-<script src="committee.js?v=1"></script>
+<script src="rules.js?v=1"></script>
+<script src="demo.js?v=1"></script>
+<script src="committee.js?v=2"></script>
 </body>
 </html>

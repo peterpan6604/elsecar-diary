@@ -70,8 +70,32 @@ The diary is also a Google Calendar called **Club Diary**. Subscribe once and ev
 
 Subscribed calendars can be slow to update. A change can take several hours to show up in your phone's calendar. The diary page itself is always up to date, so use that if you need to be sure.
 
+## 7. Function room requests from the website
+
+People ask for the function room on the club website. Nothing is booked until a committee member approves it.
+
+When a request comes in, every committee member gets an email. It has the date, session and type of event, but no contact details. Open the diary to see who it is from.
+
+**Needs approval** (on the right of the diary, or further down on a phone) lists every request waiting.
+
+* **Clash** in orange means another request, a booking, or a committee item using the room wants the same time. Sort that out first.
+* **View date** shows that day in the calendar.
+* **Approve** checks the room is still free, adds "Private party" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm. The public website then shows that session as booked.
+* **Decline** emails the customer to say the club can't take it. You can add a reason. It goes in the email, so keep it polite.
+
+A request does not block the date on the website. Two people can ask for the same evening. Approve one and decline the other.
+
+**Function room bookings** lists approved bookings still to come, with the customer's phone number and email.
+
+* **Cancel booking** asks for a reason, emails it to the customer, and removes the booking and its bar cover reminder from the diary.
+* You can't edit or delete an online booking from the calendar itself. Use Cancel booking so the customer is told.
+
+Customer details are only on this page and in the club's admin sheet. They are not in the phone calendar. They are deleted automatically 6 months after the event.
+
 ## If something goes wrong
 
 * **"Can't reach the diary"**: check your signal or wifi and try again. Nothing was changed.
 * **"That code isn't right"**: check the code with the secretary.
 * **"Someone else has deleted this item"**: another committee member removed it. Close the box and carry on.
+* **"The function room is no longer free"** when you approve: something else now uses the room that session. Decline the request, or cancel the other booking first.
+* **"The email couldn't be sent"**: the request or booking was saved, but the club's daily email limit was reached. Phone the customer instead.

@@ -1,0 +1,64 @@
+/* Elsecar Club Diary, public view. Builds on committee.css (same brand and components).
+   Always light, to sit inside the club's Google Site. Works in an embed of any width. */
+.public header.band .wrap{padding-block:12px 10px;align-items:center}
+.public .logo{width:44px;height:44px}
+.public h1{font-size:clamp(20px,3vw,28px)}
+.public .pill{text-decoration:none}
+
+.room{font-size:10.5px;font-weight:600;letter-spacing:.02em;border-radius:4px;padding:1px 5px;white-space:nowrap}
+.room.free{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.room.part{color:var(--warn);background:color-mix(in srgb,var(--warn) 13%,transparent)}
+.room.booked{color:var(--muted);background:var(--sunk)}
+.public .num{display:flex;justify-content:space-between;align-items:center;gap:4px}
+.public .day.past .num b{opacity:.5}
+.key{font-size:12.5px;color:var(--muted);margin:8px 2px 0;line-height:1.9}
+.key .room{margin-right:2px}
+.label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 6px}
+
+/* between phone and desktop (an embed about 700px wide): shorter days, chips still fit */
+.room .short{display:none}
+@media (max-width:1100px){.room .long{display:none}.room .short{display:inline}}
+@media (max-width:900px) and (min-width:641px){.public .day{min-height:78px}}
+@media (max-width:900px){.public .grid2{gap:14px}}
+@media (max-width:640px){
+  .public .room{display:none}
+  .public .num{justify-content:center;flex-direction:column;gap:2px}
+  .public .day.roomfree .num::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .key-wide{display:none}
+}
+@media (min-width:641px){.key-narrow{display:none}}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin:0 2px 1px 0}
+
+.cta{background:var(--hdr);color:var(--hdr-ink);border-color:transparent}
+.cta .sub,.cta .rules{color:var(--hdr-ink);opacity:.88}
+.cta a{color:var(--gold)}
+.rules{margin:0;padding-left:18px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.slots{display:flex;flex-direction:column;gap:8px}
+.slot{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:8px;padding:9px 12px}
+.slot b{display:block;font-size:14px}
+.slot span{font-size:12.5px;color:var(--muted)}
+.slot .tag{margin:0}
+
+fieldset.sessfield{border:0;padding:0;margin:0;min-width:0}
+fieldset.sessfield legend{font-size:13px;font-weight:600;padding:0;margin-bottom:4px}
+.sessopts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media (max-width:480px){.sessopts{grid-template-columns:1fr}}
+.sopt{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start;font-weight:400;cursor:pointer;background:var(--bg);min-height:44px}
+.sopt input{width:18px;height:18px;margin-top:2px;flex:none}
+.sopt b{display:block;font-size:13.5px}
+.sopt span span{font-size:12px;color:var(--muted)}
+.sopt:has(input:checked){border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+.sopt.off{opacity:.5;cursor:not-allowed}
+.f .hint{margin:0}
+#formCard .rules{background:var(--sunk);border-radius:8px;padding:10px 12px 10px 28px}
+
+/* spam trap: off screen for people, still in the form for bots */
+.hp{position:absolute!important;left:-10000px;width:1px;height:1px;overflow:hidden}
+
+.done{text-align:center}
+.done:focus{outline:none}
+.done .tick{width:44px;height:44px;border-radius:50%;margin:4px auto 8px;display:grid;place-items:center;background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok);font-size:24px;font-weight:700}
+.done .big{font-size:16px;font-weight:600;margin:6px 0 10px}
+.done .row{justify-content:center}
+footer a{color:var(--muted)}
+#formCard,#sentCard,#dayCard{scroll-margin-top:72px}

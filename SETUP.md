@@ -59,3 +59,26 @@ In the **Club Diary Admin** sheet → **Settings** tab:
 3. In Apps Script: **Project Settings** → **Script Properties** → add `FEED_URL` with that address. Save.
 4. Committee members then see it in the diary page under "On your phone". It is never stored in the page code, because the page is public.
 5. After pasting the new `Code.gs`, redeploy: **Deploy** → **Manage deployments** → pencil → **New version**.
+
+## 9. Stage 3 update: booking requests
+
+Do this **after** the stage 3 code has been reviewed and Pete has said it can go live. Signed in as the club account. About 10 minutes.
+
+1. Open the **Club Diary** Apps Script project. In `Code.gs`, select everything, delete it, and paste in the new `apps-script/Code.gs`. Save (Ctrl+S).
+2. In the function drop-down choose **setupStage3** and click **Run**.
+   - Google asks for permission again, because the diary can now send emails and run a monthly job. Choose the club account → **Advanced** → **Go to Club Diary (unsafe)** → **Allow**.
+   - The log should say "Stage 3 ready" and how many emails are left today.
+   - It adds three columns to the end of the **Bookings** tab (Session, Bar cover event ID, Reason), adds a **Committee page link** row to **Settings**, and creates the monthly clean-up job. Running it twice does no harm.
+3. Redeploy: **Deploy** → **Manage deployments** → pencil → Version: **New version** → **Deploy**. Never "New deployment".
+4. Check `<exec-url>?action=ping` still shows `{"ok":true,...}`.
+5. Check `<exec-url>?action=public&from=2026-11-01&to=2026-11-30` shows `roomTaken` and `rules`.
+6. In the **Settings** tab, check:
+   - **Notification emails**: every committee address, separated by commas.
+   - **Hire terms link**: leave blank until the terms are agreed. Blank means the confirmation email says "The club will send you the hire terms".
+   - **Reply-to email**: the address customers should reply to. Blank means replies go to the club Gmail.
+   - **Room capacity**: 75. It can be lowered but never raised above 75.
+7. Send yourself a test request from the public page, approve it on the committee page, then cancel it. You should get three emails, and the committee addresses one alert.
+
+**The monthly clean-up job** (`purgeOldContacts`) runs on the 1st of each month at about 3am. It blanks the name, email, phone, message and reason on every booking whose date was more than 6 months ago. You can see it under **Triggers** (the alarm clock icon). If it ever goes missing, run **setupStage3** again.
+
+**Email limit:** a free Google account can send to about 100 people a day. A request uses 1 for the customer plus 1 for each committee address. Approve, decline and cancel use 1 each. If the limit is reached, the request is still saved and shows on the committee page, but the emails are skipped. Phone the customer in that case.

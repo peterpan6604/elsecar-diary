@@ -1,11 +1,13 @@
 /**
  * Elsecar Club Diary: Apps Script backend
  * Stage 1 (plus small stage 2 additions: room tick, phone calendar link): committee sign-in, diary read/add/edit/delete, change log, public read.
+ * Stage 3: public function room booking requests, committee approve / decline / cancel, emails, monthly clean-up of contact details.
  *
  * Runs on the elsecarsportsandsocialclub1854 Google account.
  * Private settings live in Project Settings → Script Properties:
  *   DIARY_CODE    the shared committee code (add by hand, 6+ characters)
  *   CALENDAR_ID, SHEET_ID, TOKEN_SECRET   filled in by setup()
+ * After pasting a new version, run setupStage3() once from the editor (see SETUP.md).
  */
 
 const TZ = 'Europe/London';
@@ -16,6 +18,32 @@ const LOCK_AFTER = 5;          // wrong codes per device before lockout
 const GLOBAL_FAIL_LIMIT = 30;  // wrong codes club-wide before lockout
 const LOCK_MINUTES = 15;
 const PUBLIC_CACHE_SECONDS = 300;
+
+/* Stage 3: function room booking requests */
+const SESSIONS = {
+  aft: { label: 'Afternoon', time: '12pm to 5pm',      start: '12:00', end: '17:00' },
+  eve: { label: 'Evening',   time: '6pm to midnight',  start: '18:00', end: '00:00' },
+  day: { label: 'Whole day', time: '12pm to midnight', start: '12:00', end: '00:00' }
+};
+const EVENT_TYPES = ['Birthday party', '18th birthday', '21st birthday', 'Wedding or engagement', 'Christening',
+  'Funeral wake', 'Anniversary', 'Meeting or class', 'Other'];
+const SHORT_NOTICE_TYPE = 'Funeral wake';
+const MIN_NOTICE_DAYS = 7;
+const MAX_AHEAD_MONTHS = 12;
+const MAX_GUESTS = 75;            // fire limit. The Settings tab can only lower it.
+const REQ_PER_DEVICE = 3;         // requests per device every 6 hours
+const REQ_CLUB_WIDE = 20;         // requests across the whole club every 6 hours
+const REQ_WINDOW_SECONDS = 21600; // 6 hours, the longest CacheService keeps anything
+const PENDING_PER_EMAIL = 2;      // open requests allowed per email address
+const KEEP_CONTACT_MONTHS = 6;
+const REMOVED = '(removed)';
+// Bookings tab columns. 1 to 15 were created by setup() in stage 1. 16 to 18 are added by setupStage3().
+const BK = { id: 1, received: 2, status: 3, date: 4, start: 5, end: 6, type: 7, guests: 8, name: 9, email: 10,
+  phone: 11, notes: 12, by: 13, at: 14, cal: 15, sess: 16, bar: 17, reason: 18 };
+const BK_COLS = 18;
+const BK_HEADERS = ['Booking ID', 'Received', 'Status', 'Date', 'Start', 'End', 'Event type', 'Guests',
+  'Name', 'Email', 'Phone', 'Notes', 'Decided by', 'Decided at', 'Calendar event ID',
+  'Session', 'Bar cover event ID', 'Reason'];
 
 /* ============ One-off setup (run from the editor) ============ */
 
@@ -32,8 +60,7 @@ function setup() {
     log.setFrozenRows(1);
 
     const bookings = ss.insertSheet('Bookings');
-    bookings.appendRow(['Booking ID', 'Received', 'Status', 'Date', 'Start', 'End', 'Event type', 'Guests',
-      'Name', 'Email', 'Phone', 'Notes', 'Decided by', 'Decided at', 'Calendar event ID']);
+    bookings.appendRow(BK_HEADERS);
     bookings.setFrozenRows(1);
 
     const set = ss.insertSheet('Settings');
@@ -70,6 +97,31 @@ function testSelf() {
   Logger.log('Deleted. Check the Change log tab for two rows. Setup works.');
 }
 
+/**
+ * Stage 3 upgrade. Safe to run more than once.
+ * Adds the three new Bookings columns (keeps the 15 existing ones and any rows), adds the
+ * "Committee page link" setting, and creates the monthly clean-up trigger.
+ */
+function setupStage3() {
+  const sh = sheet_('Bookings');
+  if (sh.getMaxColumns() < BK_COLS) sh.insertColumnsAfter(sh.getMaxColumns(), BK_COLS - sh.getMaxColumns());
+  const head = sh.getRange(1, 1, 1, BK_COLS).getValues()[0];
+  BK_HEADERS.forEach((t, i) => { if (!head[i]) sh.getRange(1, i + 1).setValue(t); });
+  sh.getRange(1, 1, sh.getMaxRows(), BK_COLS).setNumberFormat('@'); // plain text, so dates and phone numbers stay as typed
+
+  const set = sheet_('Settings');
+  const names = set.getRange(1, 1, Math.max(1, set.getLastRow()), 1).getValues().map(r => String(r[0]).trim());
+  if (names.indexOf('Committee page link') < 0) {
+    set.appendRow(['Committee page link', 'https://peterpan6604.github.io/elsecar-diary/committee.html',
+      'Put in the booking alert emails so the committee can open the diary']);
+  }
+
+  const has = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'purgeOldContacts');
+  if (!has) ScriptApp.newTrigger('purgeOldContacts').timeBased().onMonthDay(1).atHour(3).create();
+  Logger.log('Stage 3 ready. Bookings columns: ' + BK_COLS + '. Monthly clean-up trigger: ' + (has ? 'already there' : 'created') + '.');
+  Logger.log('Emails left today: ' + MailApp.getRemainingDailyQuota());
+}
+
 /* ============ Web entry points ============ */
 
 function doGet(e) {
@@ -87,6 +139,7 @@ function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.action === 'login') return json_(login_(body));
+    if (body.action === 'request') return json_(requestBooking_(body)); // public: anyone can send a request
 
     const user = auth_(body.token);
     switch (body.action) {
@@ -95,6 +148,10 @@ function doPost(e) {
       case 'save':   return json_(saveEvent_(body.event, user));
       case 'delete': return json_(deleteEvent_(body.id, user));
       case 'log':    return json_(recentLog_());
+      case 'bookings': return json_(listBookings_());
+      case 'approve':  return json_(approveBooking_(body.id, user));
+      case 'decline':  return json_(declineBooking_(body.id, body.reason, user));
+      case 'cancel':   return json_(cancelBooking_(body.id, body.reason, user));
     }
     return json_({ ok: false, error: 'Unknown action.' });
   } catch (err) {
@@ -165,20 +222,19 @@ function publicEvents_(from, to) {
   if (hit) return JSON.parse(hit);
 
   const events = [];
-  const roomDates = {};
+  const uses = [];
   cal_().getEvents(range[0], range[1]).forEach(ev => {
     const x = shape_(ev, false);
     if (x.cat === 'room') {
-      roomDates[x.date] = true;
       events.push({ date: x.date, start: x.start, end: x.end, allDay: x.allDay, cat: 'room', title: 'Private party' });
-    } else {
-      // A committee item ticked "Uses the function room" also blocks that date, whether or not it is public
-      if (ev.getTag('room') === '1') roomDates[x.date] = true;
-      if (ev.getTag('pub') === '1') events.push({ date: x.date, start: x.start, end: x.end, allDay: x.allDay, cat: x.cat, title: x.title });
+    } else if (ev.getTag('pub') === '1') {
+      events.push({ date: x.date, start: x.start, end: x.end, allDay: x.allDay, cat: x.cat, title: x.title });
     }
+    // Room hire, and any committee item ticked "Uses the function room" (public or not), takes its session.
+    // Pending requests are NOT counted: only approved bookings block a session publicly.
+    if (usesRoom_(ev, x)) uses.push({ date: x.date, sess: sessionOfTimes_(x.start, x.end) });
   });
-  // Stage 3 adds pending booking requests to roomBooked so a requested date shows as taken.
-  const out = { ok: true, events: events, roomBooked: Object.keys(roomDates).sort() };
+  const out = { ok: true, events: events, roomTaken: takenSessions_(uses), rules: publicRules_() };
   cache.put(key, JSON.stringify(out), PUBLIC_CACHE_SECONDS);
   return out;
 }
@@ -186,7 +242,7 @@ function publicEvents_(from, to) {
 function listEvents_(from, to) {
   const range = parseRange_(from, to);
   const events = cal_().getEvents(range[0], range[1]).map(ev => shape_(ev, true));
-  return { ok: true, events: events, pending: [] }; // pending booking requests arrive in stage 3
+  return { ok: true, events: events };
 }
 
 function saveEvent_(x, user) {
@@ -211,6 +267,7 @@ function saveEvent_(x, user) {
       ev = cal_().getEventById(String(x.id));
       if (!ev) fail_('Someone else has deleted this item.');
       if (ev.getTag('src') === 'play-cricket') fail_('Fixtures come from Play-Cricket. Change them there.');
+      if (ev.getTag('bk')) fail_(BOOKING_LOCKED);
       ev.setTitle(title);
       ev.setTime(start, end);
       ev.setDescription(notes);
@@ -233,6 +290,7 @@ function deleteEvent_(id, user) {
   const ev = cal_().getEventById(String(id || ''));
   if (!ev) fail_('Someone else has already deleted this item.');
   if (ev.getTag('src') === 'play-cricket') fail_('Fixtures come from Play-Cricket. Change them there.');
+  if (ev.getTag('bk')) fail_(BOOKING_LOCKED);
   const title = ev.getTitle();
   const date = Utilities.formatDate(ev.getStartTime(), TZ, 'yyyy-MM-dd');
   ev.deleteEvent();
@@ -263,8 +321,451 @@ function shape_(ev, full) {
     o.pub = ev.getTag('pub') === '1';
     o.room = o.cat === 'room' || ev.getTag('room') === '1';
     o.by = ev.getTag('by') || '';
+    o.bk = ev.getTag('bk') || ''; // set on an approved online booking's "Private party" event
   }
   return o;
+}
+
+const BOOKING_LOCKED = 'This is an online booking. To cancel it, use Cancel in the Function room bookings card so the customer is told.';
+
+function usesRoom_(ev, x) { return x.cat === 'room' || ev.getTag('room') === '1'; }
+
+/* ============ Function room booking requests (stage 3) ============ */
+// Request and approve (decided 7 Nov 2026). A request is saved as Pending and never blocks a session publicly.
+// Only an approved booking (a "Private party" calendar event) takes the session.
+// Customer contact details live only in the Bookings tab, never in the calendar or the committee alert email.
+
+const CLUB_NAME = 'Elsecar Sports & Social Club';
+
+/** Public: a customer asks for a session. */
+function requestBooking_(b) {
+  b = b || {};
+  // Hidden spam field filled in, or the form sent faster than a person could. Pretend it worked so bots learn nothing.
+  if (cleanStr_(b.website, 200) || !(Number(b.elapsed) >= 3000)) return { ok: true, ref: '' };
+
+  const cache = CacheService.getScriptCache();
+  const devKey = 'req:' + (cleanStr_(b.deviceId, 64) || 'unknown');
+  const devCount = Number(cache.get(devKey) || 0);
+  const allCount = Number(cache.get('req:all') || 0);
+  if (devCount >= REQ_PER_DEVICE) fail_("You've sent several requests already. The committee will be in touch.");
+  if (allCount >= REQ_CLUB_WIDE) fail_("We've had a lot of requests today. Please try again tomorrow.");
+
+  const set = settings_();
+  const today = todayIso_();
+  const r = validateRequest_(b, today, capacity_(set));
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let ref, clash;
+  try {
+    if (!isFreeIn_(roomUsesOn_(r.date), r.date, r.sess)) {
+      fail_('Sorry, the function room is already booked that ' + SESSIONS[r.sess].label.toLowerCase() + '. Please choose another date or session.');
+    }
+    const rows = bookingRows_();
+    const mine = rows.filter(x => x.status === 'Pending' && x.date >= today && x.email.toLowerCase() === r.email.toLowerCase());
+    if (mine.length >= PENDING_PER_EMAIL) fail_('You already have requests waiting for the committee. They will be in touch soon.');
+    const rivals = rows.filter(x => x.status === 'Pending' && x.date === r.date && sessionsClash_(x.sess, r.sess));
+    clash = rivals.length ? 'Another request is already waiting for this session.' : '';
+
+    ref = newRef_();
+    const s = SESSIONS[r.sess];
+    appendBooking_({ id: ref, received: nowText_(), status: 'Pending', date: r.date, start: s.start, end: s.end,
+      type: r.type, guests: String(r.guests), name: r.name, email: r.email, phone: r.phone, notes: r.message, sess: s.label });
+  } finally {
+    lock.releaseLock();
+  }
+  cache.put(devKey, String(devCount + 1), REQ_WINDOW_SECONDS);
+  cache.put('req:all', String(allCount + 1), REQ_WINDOW_SECONDS);
+
+  // Emails: 1 to the customer, 1 alert to the committee (counts once per committee address against the daily quota)
+  const details = detailLines_(r.date, r.sess, r.type, r.guests, ref);
+  const sent = sendMail_(r.email, 'Your function room request (' + ref + ')', [
+    'Hello ' + r.name + ',',
+    'Thank you for asking to hire the function room at ' + CLUB_NAME + '.',
+    'This is a request, not a confirmed booking. The committee will look at it and be in touch. Please do not make firm plans until you hear from us.',
+    details,
+    CLUB_NAME
+  ], set);
+  const committee = committeeEmails_(set);
+  if (committee.length) {
+    const link = committeeUrl_(set);
+    sendMail_(committee.join(','), 'Function room request: ' + niceDate_(r.date) + ', ' + SESSIONS[r.sess].label.toLowerCase() + ' (' + ref + ')', [
+      'A new function room request has come in from the website.',
+      details,
+      clash ? 'Clash: ' + clash : '',
+      'Sign in to the club diary to see the contact details, then approve or decline it.' + (link ? '\n' + link : ''),
+      'It is not a booking until a committee member approves it.'
+    ], null);
+  }
+  return { ok: true, ref: ref, emailed: sent };
+}
+
+/** Committee: requests waiting for a decision, and approved bookings still to come. Contact details only here. */
+function listBookings_() {
+  const today = todayIso_();
+  const rows = bookingRows_().filter(x => x.date >= today && x.name !== REMOVED);
+  const pending = rows.filter(x => x.status === 'Pending').sort(byBkDate_);
+  const approved = rows.filter(x => x.status === 'Approved').sort(byBkDate_);
+  const uses = [];
+  if (pending.length) {
+    const a = toDate_(pending[0].date, '00:00');
+    const z = toDate_(pending[pending.length - 1].date, '00:00');
+    z.setDate(z.getDate() + 1);
+    cal_().getEvents(a, z).forEach(ev => {
+      const x = shape_(ev, false);
+      if (usesRoom_(ev, x)) uses.push({ date: x.date, sess: sessionOfTimes_(x.start, x.end), title: x.cat === 'room' ? 'a booking' : x.title });
+    });
+  }
+  return {
+    ok: true,
+    pending: pending.map(p => Object.assign(bkOut_(p), { clash: clashNote_(p, pending, uses) })),
+    upcoming: approved.map(bkOut_)
+  };
+}
+
+function approveBooking_(id, user) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let b;
+  try {
+    const rows = bookingRows_();
+    b = findBooking_(rows, id);
+    if (b.status !== 'Pending') fail_('This request has already been ' + b.status.toLowerCase() + '.');
+    if (b.date < todayIso_()) fail_('The date of this request has passed. Decline it instead.');
+    const busy = 'The function room is no longer free that ' + SESSIONS[b.sess].label.toLowerCase() + '. Decline this request, or cancel the other booking first.';
+    if (!isFreeIn_(roomUsesOn_(b.date), b.date, b.sess)) fail_(busy);
+    if (rows.some(x => x.status === 'Approved' && x.id !== b.id && x.date === b.date && sessionsClash_(x.sess, b.sess))) fail_(busy);
+
+    const s = SESSIONS[b.sess];
+    const start = toDate_(b.date, s.start);
+    const end = toDate_(b.date, s.end);
+    if (end <= start) end.setDate(end.getDate() + 1); // evening runs to midnight
+    // No names, emails or phone numbers in the calendar: committee phones subscribe to it.
+    const ev = cal_().createEvent('Private party', start, end,
+      { description: 'Online booking ' + b.id + '. ' + b.type + ', ' + b.guests + ' guests. Contact details are on the committee page.' });
+    ev.setTag('cat', 'room'); ev.setTag('pub', '1'); ev.setTag('room', '1'); ev.setTag('by', user.name); ev.setTag('bk', b.id);
+    const bar = cal_().createEvent('Bar cover needed: private party', start, end,
+      { description: 'Bar cover for online booking ' + b.id + ' (' + b.guests + ' guests).' });
+    bar.setTag('cat', 'staff'); bar.setTag('pub', '0'); bar.setTag('room', '0'); bar.setTag('by', user.name); bar.setTag('bar', b.id);
+
+    updateBooking_(b.row, { status: 'Approved', by: user.name, at: nowText_(), cal: ev.getId(), bar: bar.getId() });
+    bumpCache_();
+    log_(user.name, 'Approved booking', b.type + ' (' + b.id + ')', b.date);
+  } finally {
+    lock.releaseLock();
+  }
+  const set = settings_();
+  const terms = termsUrl_(set);
+  const sent = sendMail_(b.email, 'Your function room booking is confirmed (' + b.id + ')', [
+    'Hello ' + b.name + ',',
+    'Good news. Your function room booking at ' + CLUB_NAME + ' is confirmed.',
+    detailLines_(b.date, b.sess, b.type, b.guests, b.id),
+    terms ? 'Please read the hire terms before your event:\n' + terms : 'The club will send you the hire terms before your event.',
+    'If you need to change or cancel, please tell us as soon as you can by replying to this email.',
+    CLUB_NAME
+  ], set);
+  return { ok: true, emailed: sent };
+}
+
+function declineBooking_(id, reason, user) {
+  const why = cleanStr_(reason, 500, true);
+  const b = decide_(id, 'Pending', { status: 'Declined', reason: why }, user, 'Declined request');
+  const sent = sendMail_(b.email, 'Your function room request (' + b.id + ')', [
+    'Hello ' + b.name + ',',
+    'Thank you for your request. Sorry, the club cannot take your booking for the function room on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
+    why ? 'The committee said: ' + why : '',
+    'You are welcome to send a request for another date.',
+    CLUB_NAME
+  ], settings_());
+  return { ok: true, emailed: sent };
+}
+
+function cancelBooking_(id, reason, user) {
+  const why = cleanStr_(reason, 500, true);
+  if (why.length < 3) fail_('Add a reason. It goes in the email to the customer.');
+  const b = decide_(id, 'Approved', { status: 'Cancelled', reason: why }, user, 'Cancelled booking', true);
+  const sent = sendMail_(b.email, 'Your function room booking has been cancelled (' + b.id + ')', [
+    'Hello ' + b.name + ',',
+    'Sorry, the club has had to cancel your function room booking on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
+    'Reason: ' + why,
+    'We are sorry for the trouble this causes. Please reply to this email if you have any questions.',
+    CLUB_NAME
+  ], settings_());
+  return { ok: true, emailed: sent };
+}
+
+/** Shared by decline and cancel: checks the status, removes calendar events if asked, updates the row. */
+function decide_(id, mustBe, change, user, logWhat, removeEvents) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const b = findBooking_(bookingRows_(), id);
+    if (b.status !== mustBe) fail_('This ' + (mustBe === 'Pending' ? 'request' : 'booking') + ' is already ' + b.status.toLowerCase() + '.');
+    if (removeEvents) {
+      [b.cal, b.bar].forEach(evId => {
+        if (!evId) return;
+        try { const ev = cal_().getEventById(evId); if (ev) ev.deleteEvent(); } catch (e) { /* already gone */ }
+      });
+      bumpCache_();
+    }
+    updateBooking_(b.row, Object.assign({ by: user.name, at: nowText_() }, change));
+    log_(user.name, logWhat, b.type + ' (' + b.id + ')', b.date);
+    return b;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Monthly job (trigger made by setupStage3): removes customer contact details 6 months after the event. */
+function purgeOldContacts() {
+  const cutoff = addMonthsIso_(todayIso_(), -KEEP_CONTACT_MONTHS);
+  let n = 0;
+  bookingRows_().forEach(b => {
+    if (isRealDate_(b.date) && b.date < cutoff && b.name !== REMOVED) {
+      updateBooking_(b.row, { name: REMOVED, email: '', phone: '', notes: '', reason: '' });
+      n++;
+    }
+  });
+  Logger.log('Removed contact details from ' + n + ' booking(s) older than ' + cutoff + '.');
+}
+
+/* ---- Bookings tab ---- */
+
+function bookingRows_() {
+  const sh = sheet_('Bookings');
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, BK_COLS).getValues().map((r, i) => {
+    const o = { row: i + 2 };
+    Object.keys(BK).forEach(k => { o[k] = cellText_(r[BK[k] - 1]); });
+    o.sess = sessKey_(o.sess, o.start, o.end);
+    return o;
+  });
+}
+
+function findBooking_(rows, id) {
+  const want = String(id || '');
+  if (!/^ECC-[A-Z0-9]{6}$/.test(want)) fail_('That booking was not found.');
+  const b = rows.find(x => x.id === want);
+  if (!b) fail_('That booking was not found.');
+  return b;
+}
+
+function appendBooking_(vals) {
+  const sh = sheet_('Bookings');
+  const row = new Array(BK_COLS).fill('');
+  Object.keys(vals).forEach(k => { row[BK[k] - 1] = safeCell_(vals[k]); });
+  // Plain text format first, so Sheets keeps dates, times and phone numbers exactly as written
+  sh.getRange(sh.getLastRow() + 1, 1, 1, BK_COLS).setNumberFormat('@').setValues([row]);
+}
+
+function updateBooking_(rowNum, vals) {
+  const sh = sheet_('Bookings');
+  Object.keys(vals).forEach(k => sh.getRange(rowNum, BK[k]).setNumberFormat('@').setValue(safeCell_(vals[k])));
+}
+
+/** What the committee page gets for one booking. */
+function bkOut_(b) {
+  return { id: b.id, received: b.received, date: b.date, sess: b.sess, type: b.type, guests: b.guests,
+    name: b.name, email: b.email, phone: b.phone, message: b.notes, by: b.by, at: b.at };
+}
+
+function byBkDate_(a, b) { return (a.date + a.sess).localeCompare(b.date + b.sess); }
+
+/** Every room use on one date, from the calendar: approved bookings and committee items ticked "Uses the function room". */
+function roomUsesOn_(date) {
+  const a = toDate_(date, '00:00');
+  const z = toDate_(date, '00:00');
+  z.setDate(z.getDate() + 1);
+  const out = [];
+  cal_().getEvents(a, z).forEach(ev => {
+    const x = shape_(ev, false);
+    if (x.date === date && usesRoom_(ev, x)) out.push({ date: date, sess: sessionOfTimes_(x.start, x.end) });
+  });
+  return out;
+}
+
+/* ---- Email ---- */
+
+/** Sends one plain text email (never HTML, so nothing a customer types can become a link or markup). Returns true if sent. */
+function sendMail_(to, subject, paragraphs, set) {
+  try {
+    if (MailApp.getRemainingDailyQuota() < String(to).split(',').length) {
+      console.error('Email quota used up. Not sent: ' + subject);
+      return false;
+    }
+    const opts = { to: to, subject: subject, body: paragraphs.filter(Boolean).join('\n\n'), name: CLUB_NAME };
+    const replyTo = set ? replyTo_(set) : '';
+    if (replyTo) opts.replyTo = replyTo;
+    MailApp.sendEmail(opts);
+    return true;
+  } catch (e) {
+    console.error('Email failed: ' + subject + ': ' + e);
+    return false;
+  }
+}
+
+function detailLines_(date, sess, type, guests, ref) {
+  return ['Date: ' + niceDate_(date), 'Session: ' + sessionText_(sess), 'Type of event: ' + type,
+    'Guests: ' + guests, 'Reference: ' + ref].join('\n');
+}
+
+/* ---- Settings tab ---- */
+
+function settings_() {
+  const sh = sheet_('Settings');
+  const last = sh.getLastRow();
+  const out = {};
+  if (last < 2) return out;
+  sh.getRange(2, 1, last - 1, 2).getValues().forEach(r => { out[String(r[0]).trim()] = String(r[1]).trim(); });
+  return out;
+}
+
+/** Safe settings for the public page. Cached with the public diary. */
+function publicRules_() {
+  const set = settings_();
+  return { today: todayIso_(), capacity: capacity_(set), termsUrl: termsUrl_(set), minNotice: MIN_NOTICE_DAYS,
+    maxMonths: MAX_AHEAD_MONTHS, shortNoticeType: SHORT_NOTICE_TYPE, types: EVENT_TYPES };
+}
+
+function todayIso_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
+function nowText_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'); }
+
+function newRef_() { return 'ECC-' + Utilities.getUuid().replace(/-/g, '').slice(0, 6).toUpperCase(); }
+
+/** Sheets can turn text into dates. Turn any value back into plain text and undo the formula guard. */
+function cellText_(v) {
+  if (v instanceof Date) {
+    const hasTime = v.getHours() || v.getMinutes();
+    return Utilities.formatDate(v, TZ, hasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd');
+  }
+  return String(v == null ? '' : v).replace(/^'(?=[=+\-@])/, '');
+}
+
+/* ---- Pure rules (no Google services, so tests/test-rules.js can check them) ---- */
+
+/** Checks a request and returns clean values. Throws a plain English message on the first problem. */
+function validateRequest_(b, today, capacity) {
+  const name = cleanStr_(b.name, 80);
+  if (name.length < 2) fail_('Add your name.');
+  if (/:\/\/|www\.|[<>@]/i.test(name)) fail_('Please type just your name.');
+
+  const phone = cleanStr_(b.phone, 25);
+  const digits = phone.replace(/\D/g, '');
+  if (!/^[0-9 +()\-]+$/.test(phone) || digits.length < 10 || digits.length > 15) fail_('Add a phone number we can call you on.');
+
+  const email = cleanStr_(b.email, 120);
+  if (!isEmail_(email)) fail_('Add an email address so we can reply.');
+
+  const date = String(b.date || '');
+  if (!isRealDate_(date)) fail_('Choose a date.');
+  const sess = String(b.sess || '');
+  if (!Object.prototype.hasOwnProperty.call(SESSIONS, sess)) fail_('Choose a session: afternoon, evening or the whole day.');
+  const type = String(b.type || '');
+  if (EVENT_TYPES.indexOf(type) < 0) fail_('Choose the type of event.');
+
+  const g = String(b.guests == null ? '' : b.guests).trim();
+  const guests = /^\d{1,4}$/.test(g) ? Number(g) : 0;
+  if (guests < 1) fail_('Add roughly how many guests.');
+  if (guests > capacity) fail_('The room holds up to ' + capacity + ' people, including staff and entertainers.');
+
+  const message = cleanStr_(b.message, 1000, true);
+
+  const ahead = daysBetween_(today, date);
+  if (type === SHORT_NOTICE_TYPE) {
+    if (ahead < 1) fail_('Funeral wakes can be requested from tomorrow onwards. For anything sooner, please ring the club.');
+  } else if (ahead < MIN_NOTICE_DAYS) {
+    fail_('We need at least ' + MIN_NOTICE_DAYS + " days' notice. The earliest date you can ask for is " + niceDate_(addDaysIso_(today, MIN_NOTICE_DAYS)) + '.');
+  }
+  if (date > addMonthsIso_(today, MAX_AHEAD_MONTHS)) fail_('We take requests up to ' + MAX_AHEAD_MONTHS + ' months ahead.');
+
+  return { name: name, phone: phone, email: email, date: date, sess: sess, type: type, guests: guests, message: message };
+}
+
+/** Which session a diary item uses, from its times. Matches sessionOf() in committee.js. */
+function sessionOfTimes_(start, end) {
+  if (!start) return 'day'; // all day
+  const s = +start.slice(0, 2);
+  let eh = +String(end || '00:00').slice(0, 2);
+  if (eh === 0) eh = 24;
+  if (end <= start) eh += 24;
+  if (eh > 48) eh -= 24;
+  const aft = s < 17, eve = eh > 18 || s >= 17;
+  return aft && eve ? 'day' : aft ? 'aft' : 'eve';
+}
+
+function sessionsClash_(a, b) { return a === 'day' || b === 'day' || a === b; }
+
+/** [{date, sess}] → { '2026-11-14': ['aft', 'eve'] }. Whole day takes both. */
+function takenSessions_(uses) {
+  const m = {};
+  uses.forEach(u => {
+    const t = m[u.date] || (m[u.date] = {});
+    if (u.sess === 'day') { t.aft = true; t.eve = true; } else t[u.sess] = true;
+  });
+  const out = {};
+  Object.keys(m).sort().forEach(d => { out[d] = ['aft', 'eve'].filter(s => m[d][s]); });
+  return out;
+}
+
+function isFreeIn_(uses, date, sess) {
+  return !uses.some(u => u.date === date && sessionsClash_(u.sess, sess));
+}
+
+/** Plain English clash warning for the committee. Empty if there is no clash. */
+function clashNote_(p, pending, uses) {
+  const notes = [];
+  uses.filter(u => u.date === p.date && sessionsClash_(u.sess, p.sess))
+    .forEach(u => notes.push('The room is already in use that day: ' + u.title + ' (' + SESSIONS[u.sess].label.toLowerCase() + ').'));
+  const others = pending.filter(o => o.id !== p.id && o.date === p.date && sessionsClash_(o.sess, p.sess));
+  if (others.length === 1) notes.push('Another request wants this session too (' + others[0].id + ').');
+  else if (others.length > 1) notes.push(others.length + ' other requests want this session too.');
+  return notes.join(' ');
+}
+
+function sessKey_(label, start, end) {
+  const k = Object.keys(SESSIONS).find(x => SESSIONS[x].label === label);
+  return k || (start ? sessionOfTimes_(start, end) : 'day');
+}
+
+function sessionText_(sess) { return SESSIONS[sess].label + ', ' + SESSIONS[sess].time; }
+
+function isEmail_(s) { return /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[A-Za-z]{2,}$/.test(String(s || '')) && String(s).length <= 120; }
+
+function committeeEmails_(set) { return String(set['Notification emails'] || '').split(/[\s,;]+/).filter(isEmail_); }
+function replyTo_(set) { const v = String(set['Reply-to email'] || ''); return isEmail_(v) ? v : ''; }
+function termsUrl_(set) { const v = String(set['Hire terms link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
+function committeeUrl_(set) { const v = String(set['Committee page link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
+function capacity_(set) {
+  const n = parseInt(set['Room capacity'], 10);
+  return n >= 1 && n <= MAX_GUESTS ? n : MAX_GUESTS;
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function isRealDate_(s) {
+  if (!isDate_(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+function utcOf_(s) { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); }
+function isoOfUtc_(t) {
+  const d = new Date(t);
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
+function daysBetween_(a, b) { return Math.round((utcOf_(b) - utcOf_(a)) / 864e5); }
+function addDaysIso_(s, n) { return isoOfUtc_(utcOf_(s) + n * 864e5); }
+/** Adds months, keeping to the last day of a shorter month (31 Aug minus 6 months is 28 or 29 Feb). */
+function addMonthsIso_(s, n) {
+  const [y, m, d] = s.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+  return isoOfUtc_(Date.UTC(y, m - 1 + n, Math.min(d, lastDay)));
+}
+function niceDate_(s) {
+  const t = new Date(utcOf_(s));
+  return DAY_NAMES[t.getUTCDay()] + ' ' + t.getUTCDate() + ' ' + MONTH_NAMES[t.getUTCMonth()] + ' ' + t.getUTCFullYear();
 }
 
 /* ============ Change log ============ */

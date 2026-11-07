@@ -60,7 +60,8 @@ const S = {
   view: 'month',          // 'month' | 'list'
   y: now.getFullYear(), m: now.getMonth(), sel: TODAY,
   off: new Set(),         // categories hidden by the filter chips
-  events: [], log: [], feed: '', loadErr: '', loading: false
+  events: [], log: [], feed: '', loadErr: '', loading: false,
+  pending: [], upcoming: [], outbox: [], bkLoaded: false, bkErr: '' // function room requests (stage 3)
 };
 let reqId = 0;
 
@@ -105,7 +106,7 @@ function showOnly(which) {
 }
 
 function signOut(message) {
-  S.session = null; S.events = []; S.log = []; S.feed = '';
+  S.session = null; S.events = []; S.log = []; S.feed = ''; S.pending = []; S.upcoming = []; S.outbox = []; S.bkLoaded = false;
   store('ecc-diary-session', null);
   closeModal();
   showSignin(message);
@@ -183,11 +184,23 @@ async function loadFeed() {
   try { S.feed = (await api('check')).feed || ''; renderSide(); } catch (e) { /* ignore */ }
 }
 
+async function loadBookings() {
+  try {
+    const r = await api('bookings');
+    S.pending = r.pending || []; S.upcoming = r.upcoming || []; S.outbox = r.outbox || []; S.bkErr = '';
+  } catch (e) { if (e.auth) return; S.bkErr = e.message; }
+  S.bkLoaded = true;
+  renderSide();
+}
+
 function startApp() {
   showOnly('app');
   render();
-  load(); loadLog(); loadFeed();
+  load(); loadLog(); loadFeed(); loadBookings();
 }
+
+// Coming back to the page (another tab, or the phone was locked): fetch new requests.
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.session) { loadBookings(); } });
 
 /* ---------- display ---------- */
 const byTime = (a, b) => (a.date + a.start).localeCompare(b.date + b.start) || a.title.localeCompare(b.title);
@@ -255,6 +268,7 @@ function renderList() {
 function itemEl(e) {
   const tags = [];
   if (isFixture(e)) tags.push(h('span', { class: 'tag pc' }, 'Play-Cricket'));
+  if (e.bk) tags.push(h('span', { class: 'tag' }, 'Online booking'));
   if (e.room && e.cat !== 'room') tags.push(h('span', { class: 'tag' }, 'Uses room'));
   if (!e.pub && e.cat !== 'room' && !isFixture(e)) tags.push(h('span', { class: 'tag' }, 'Committee only'));
   const meta = timeText(e) + (e.by ? ' · added by ' + e.by : '');
@@ -277,7 +291,8 @@ function renderSide() {
       h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn small', onclick: () => openEditor(null) }, 'Add to this day'))));
   }
 
-  /* STAGE 3 goes here: "Needs approval" and "Latest online bookings" cards for the public function room bookings. */
+  cards.push(pendingCard(), upcomingCard());
+  if (DEMO && S.outbox.length) cards.push(outboxCard());
 
   cards.push(h('div', { class: 'card' }, h('h3', null, 'Recent changes'),
     S.log.length
@@ -291,6 +306,98 @@ function renderSide() {
       h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn line small', onclick: copyFeed }, 'Copy link'))));
   }
   fill($('side'), cards);
+}
+
+/* ---------- function room requests and bookings (stage 3) ----------
+   Contact details only ever appear here, behind sign-in. They are never put in the calendar. */
+const SESS_NAME = { aft: 'Afternoon (12pm to 5pm)', eve: 'Evening (6pm to midnight)', day: 'Whole day (12pm to midnight)' };
+const bkMeta = b => short(b.date) + ' · ' + (SESS_NAME[b.sess] || '') + ' · ' + b.guests + ' guests';
+
+function contactEl(b) {
+  return h('div', { class: 'contact' },
+    h('div', null, h('b', null, b.name)),
+    h('div', null, h('a', { href: 'tel:' + String(b.phone).replace(/[^0-9+]/g, '') }, b.phone)),
+    h('div', null, h('a', { href: 'mailto:' + encodeURIComponent(b.email).replace(/%40/g, '@') }, b.email)));
+}
+
+function bkCardBody(list, emptyText, itemFn) {
+  if (S.bkErr) return h('p', { class: 'err' }, S.bkErr + ' ', h('button', { class: 'btn small line', onclick: loadBookings }, 'Try again'));
+  if (!S.bkLoaded) return h('p', { class: 'empty' }, 'Loading…');
+  return list.length ? h('div', { class: 'reqs' }, list.map(itemFn)) : h('p', { class: 'empty' }, emptyText);
+}
+
+function viewDate(d) { S.view = 'month'; goToDate(d); window.scrollTo(0, 0); }
+
+function pendingCard() {
+  return h('div', { class: 'card', id: 'needsApproval' },
+    h('div', { class: 'row spread' }, h('h3', { style: 'margin:0' }, 'Needs approval'),
+      S.pending.length ? h('span', { class: 'tag pend' }, S.pending.length + ' waiting') : null),
+    h('p', { class: 'sub', style: 'margin-top:4px' }, 'Function room requests from the website. A request does not block the date until you approve it.'),
+    bkCardBody(S.pending, 'Nothing waiting.', b => h('div', { class: 'req' + (b.clash ? ' clash' : '') },
+      h('div', { class: 'ttl' }, b.type, h('span', { class: 'ref' }, b.id)),
+      h('div', { class: 'meta' }, bkMeta(b)),
+      b.clash ? h('p', { class: 'warn', role: 'note' }, h('b', null, 'Clash: '), b.clash) : null,
+      contactEl(b),
+      b.message ? h('div', { class: 'note' }, '“' + b.message + '”') : null,
+      h('div', { class: 'meta' }, 'Received ' + whenText(b.received)),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn small', onclick: () => bookingAction(b, 'approve') }, 'Approve'),
+        h('button', { class: 'btn small line', onclick: () => bookingAction(b, 'decline') }, 'Decline'),
+        h('button', { class: 'btn small line', onclick: () => viewDate(b.date) }, 'View date')))));
+}
+
+function upcomingCard() {
+  return h('div', { class: 'card' },
+    h('h3', null, 'Function room bookings'),
+    h('p', { class: 'sub' }, 'Approved online bookings coming up. Each one has a bar cover reminder in the diary.'),
+    bkCardBody(S.upcoming, 'No online bookings coming up.', b => h('div', { class: 'req' },
+      h('div', { class: 'ttl' }, b.type, h('span', { class: 'ref' }, b.id)),
+      h('div', { class: 'meta' }, bkMeta(b)),
+      contactEl(b),
+      b.by ? h('div', { class: 'meta' }, 'Approved by ' + b.by) : null,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn small line', onclick: () => viewDate(b.date) }, 'View date'),
+        h('button', { class: 'btn small line', onclick: () => bookingAction(b, 'cancel') }, 'Cancel booking')))));
+}
+
+function outboxCard() {
+  return h('div', { class: 'card' }, h('h3', null, 'Demo outbox'),
+    h('p', { class: 'sub' }, 'Demo only. The real diary sends these emails from the club account. Nothing is sent in the demo.'),
+    h('div', { class: 'reqs' }, S.outbox.map(m => h('details', { class: 'req' },
+      h('summary', null, h('b', null, m.subject), h('div', { class: 'meta' }, 'To ' + m.to + ' · ' + whenText(m.when))),
+      h('div', { class: 'note mailbody' }, m.body)))));
+}
+
+function bookingAction(b, kind) {
+  const C = {
+    approve: { title: 'Approve this booking?', go: 'Approve booking', cls: 'btn', busy: 'Approving…', done: 'Approved',
+      lines: ['Adds "Private party" to the diary for that session. The public see it as booked.', 'Adds a bar cover reminder to the diary.', 'Emails ' + b.name + ' to confirm the booking.'] },
+    decline: { title: 'Decline this request?', go: 'Decline request', cls: 'btn danger', busy: 'Declining…', done: 'Declined',
+      label: 'Reason (optional). It goes in the email to the customer.', lines: ['Emails ' + b.name + ' to say the club cannot take the booking.'] },
+    cancel: { title: 'Cancel this booking?', go: 'Cancel booking', cls: 'btn danger', busy: 'Cancelling…', done: 'Cancelled', required: true,
+      label: 'Reason. It goes in the email to the customer.', lines: ['Removes the booking and its bar cover reminder from the diary.', 'Emails ' + b.name + ' with your reason.'] }
+  }[kind];
+  const reason = C.label ? h('textarea', { id: 'bkReason', maxlength: '500', placeholder: kind === 'cancel' ? 'e.g. The room is needed for essential repairs.' : '' }) : null;
+  const err = h('p', { class: 'err', role: 'alert', hidden: true });
+  const go = h('button', { class: C.cls, type: 'button' }, C.go);
+  const back = h('button', { class: 'btn line', type: 'button', onclick: closeModal }, 'Back');
+  go.addEventListener('click', async () => {
+    const why = reason ? reason.value.trim() : '';
+    if (C.required && why.length < 3) return setErr(err, 'Add a reason. It goes in the email to the customer.');
+    setErr(err, ''); go.disabled = true; back.disabled = true; go.textContent = C.busy;
+    try {
+      const r = await api(kind, { id: b.id, reason: why });
+      closeModal();
+      toast(C.done + '. ' + (r.emailed ? b.name + ' has been emailed.' : "The email couldn't be sent, so please tell " + b.name + ' yourself.'));
+      loadBookings(); afterChange();
+    } catch (e) { if (e.auth) return; setErr(err, e.message); go.disabled = false; back.disabled = false; go.textContent = C.go; }
+  });
+  modal(C.title,
+    h('div', { class: 'summary' }, h('b', null, b.type + ' · ' + b.id), h('span', null, nice(b.date) + ', ' + (SESS_NAME[b.sess] || '')), h('span', null, b.guests + ' guests · ' + b.name)),
+    b.clash && kind === 'approve' ? h('p', { class: 'warn' }, h('b', null, 'Clash: '), b.clash) : null,
+    h('ul', { class: 'does' }, C.lines.map(l => h('li', null, l))),
+    reason ? h('div', { class: 'f' }, h('label', { for: 'bkReason' }, C.label), reason) : null,
+    err, h('div', { class: 'row' }, go, back));
 }
 
 function whenText(w) { // "2026-11-07 16:42"
@@ -346,7 +453,8 @@ function clashWith(data, editingId) {
 function openEditor(ev) {
   const isNew = !ev;
   const e = ev || { date: S.view === 'month' ? S.sel : TODAY, start: '19:00', end: '21:00', title: '', cat: 'club', pub: false, notes: '', room: false };
-  const readOnly = isFixture(e);
+  const isBooking = !!e.bk; // an approved online booking: change it with Cancel in the bookings card
+  const readOnly = isFixture(e) || isBooking;
   const dis = readOnly;
 
   const title = h('input', { id: 'eTitle', maxlength: '100', value: e.title, placeholder: 'e.g. Quiz night', disabled: dis });
@@ -413,8 +521,9 @@ function openEditor(ev) {
     } catch (e2) { if (e2.auth) return; setErr(err, e2.message); submit.disabled = false; submit.textContent = isNew ? 'Add to diary' : 'Save changes'; }
   });
 
-  modal(isNew ? 'Add to the diary' : (readOnly ? 'Fixture' : 'Edit diary item'),
-    readOnly ? h('p', { class: 'hint' }, 'This fixture comes from Play-Cricket. Change it there and the diary updates the next morning.') : null,
+  modal(isNew ? 'Add to the diary' : (isBooking ? 'Online booking' : readOnly ? 'Fixture' : 'Edit diary item'),
+    isBooking ? h('p', { class: 'hint' }, 'This is an approved online booking. The contact details are in the Function room bookings card. To cancel it, use Cancel booking there so the customer is emailed.')
+      : readOnly ? h('p', { class: 'hint' }, 'This fixture comes from Play-Cricket. Change it there and the diary updates the next morning.') : null,
     form);
 }
 
@@ -434,76 +543,19 @@ $('vMonth').addEventListener('click', () => { S.view = 'month'; load(); render()
 $('vList').addEventListener('click', () => { S.view = 'list'; S.events = []; load(); render(); });
 $('addBtn').addEventListener('click', () => openEditor(null));
 
-/* ---------- demo mode: sample data kept in memory ---------- */
-const demo = { events: [], log: [], fails: 0, n: 0 };
-function demoSeed() {
-  const t = TODAY;
-  const mk = (off, start, end, title, cat, o) => Object.assign({ id: 'demo' + (++demo.n), date: addDays(t, off), start, end, allDay: false, title, cat,
-    src: '', status: 'confirmed', notes: '', pub: cat === 'room' || cat === 'club' || cat === 'cricket', room: cat === 'room', by: 'Amanda' }, o || {});
-  demo.events = [
-    mk(1, '19:30', '21:00', 'Committee meeting', 'meet', { notes: 'Agenda: Christmas rota, roof quote, function room prices.' }),
-    mk(2, '20:00', '23:00', 'Quiz night', 'club', { notes: 'One pound a head, teams of up to 6.' }),
-    mk(3, '18:00', '00:00', '40th birthday party', 'room', { notes: 'Own DJ. Buffet from 8pm.', by: 'Sarah' }),
-    mk(3, '17:00', '00:00', 'Bar cover needed: 40th birthday', 'staff', { pub: false, notes: 'Two on the bar.' }),
-    mk(4, '10:00', '12:00', 'Junior winter nets', 'cricket', { notes: 'Sports hall. U11 to U15.' }),
-    mk(6, '11:00', '15:00', 'Christmas craft fair', 'club', { room: true, notes: 'Stalls in the function room and bar.' }),
-    mk(6, '13:00', '17:00', '1st XI v Hoyland Town (H)', 'cricket', { src: 'play-cricket', by: '' }),
-    mk(9, '19:30', '23:00', 'Presentation night', 'cricket', { room: true, pub: true }),
-    mk(10, '12:00', '17:00', 'Christening', 'room', { by: 'Website' }),
-    mk(10, '', '', 'Brewery delivery', 'staff', { allDay: true, pub: false }),
-    mk(21, '19:30', '21:00', 'Committee meeting', 'meet'),
-    mk(35, '20:00', '01:00', 'Christmas party night', 'club', { room: true })
-  ];
-  demo.log = [
-    { when: addDays(t, -1) + ' 16:42', who: 'Amanda', what: 'Added', item: 'Quiz night', date: addDays(t, 2) },
-    { when: addDays(t, -1) + ' 09:20', who: 'Sarah', what: 'Edited', item: '40th birthday party', date: addDays(t, 3) }
-  ];
-}
-demoSeed();
-
-const wait = ms => new Promise(r => setTimeout(r, ms));
-function demoLog(what, item, date) { demo.log.unshift({ when: TODAY + ' ' + pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()), who: S.session ? S.session.name : 'Demo', what, item, date }); }
-
+/* ---------- demo mode: shared sample data in demo.js ---------- */
 async function demoApi(action, p) {
-  await wait(120);
-  if (DEMO_OFFLINE) throw new ApiError("Can't reach the diary. Check your signal or wifi and try again. Nothing was changed.");
-  if (action === 'login') {
-    if (demo.fails >= 5) throw new ApiError('Too many wrong attempts. Try again in 15 minutes.');
-    if (!String(p.name || '').trim()) throw new ApiError('Add your first name so changes show who made them.');
-    if (String(p.code).trim() !== 'demo') { demo.fails++; throw new ApiError("That code isn't right. Check with the club secretary."); }
-    demo.fails = 0;
-    return { ok: true, token: 'demo-token', name: String(p.name).trim().slice(0, 40), expires: Date.now() + 30 * 864e5 };
-  }
-  if (action === 'check') return { ok: true, name: S.session.name, feed: 'https://example.invalid/this-is-a-demo-link.ics' };
-  if (action === 'list') return { ok: true, events: demo.events.filter(e => e.date >= p.from && e.date <= p.to).map(e => Object.assign({}, e)), pending: [] };
-  if (action === 'log') return { ok: true, log: demo.log.slice(0, 20) };
-  if (action === 'save') {
-    const x = p.event || {};
-    if (!String(x.title || '').trim()) throw new ApiError('Give it a name so people know what it is.');
-    if (!CATS[x.cat]) throw new ApiError('Choose a type for this item.');
-    if (!x.date) throw new ApiError('Choose a date.');
-    if (!x.start || !x.end) throw new ApiError('Add a start and finish time.');
-    const rec = { date: x.date, start: x.start, end: x.end, allDay: false, title: x.title.trim().slice(0, 100), cat: x.cat, src: '', status: 'confirmed',
-      notes: String(x.notes || '').slice(0, 1000), pub: x.cat === 'room' ? true : !!x.pub, room: x.cat === 'room' || !!x.room, by: S.session.name };
-    if (x.id) {
-      const cur = demo.events.find(e => e.id === x.id);
-      if (!cur) throw new ApiError('Someone else has deleted this item.');
-      Object.assign(cur, rec); demoLog('Edited', rec.title, rec.date); return { ok: true, event: Object.assign({}, cur) };
-    }
-    rec.id = 'demo' + (++demo.n); demo.events.push(rec); demoLog('Added', rec.title, rec.date);
-    return { ok: true, event: Object.assign({}, rec) };
-  }
-  if (action === 'delete') {
-    const i = demo.events.findIndex(e => e.id === p.id);
-    if (i < 0) throw new ApiError('Someone else has already deleted this item.');
-    const e = demo.events.splice(i, 1)[0]; demoLog('Deleted', e.title, e.date); return { ok: true };
-  }
-  throw new ApiError('Unknown action.');
+  if (DEMO_OFFLINE) { await new Promise(r => setTimeout(r, 120)); throw new ApiError("Can't reach the diary. Check your signal or wifi and try again. Nothing was changed."); }
+  try { return await window.DiaryDemo.api(action, p, S.session ? S.session.name : 'Demo'); }
+  catch (e) { throw new ApiError(e.message); }
 }
 
 /* ---------- start ---------- */
 function boot() {
-  if (DEMO) $('demoBar').hidden = false;
+  if (DEMO) {
+    $('demoBar').hidden = false;
+    $('demoReset').addEventListener('click', () => { window.DiaryDemo.reset(); location.reload(); });
+  }
   if (!DEMO && !HAS_BACKEND) return showOnly('noBackend');
   if (!DEMO) {
     try {

@@ -12,7 +12,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 1.1 You must be 18 or over to book.
 
-1.2 Your booking is confirmed when you click the confirmation link we email you. If you don't click it within 24 hours, the date is released. Bookings for 18th and 21st birthdays, and short notice wakes, are confirmed by a committee member.
+1.2 Sending a request does not book the room. Your booking is confirmed only when a committee member approves it and we email you to say so.
 
 1.3 The person who books is responsible for the event and must be at the club for the whole event.
 
