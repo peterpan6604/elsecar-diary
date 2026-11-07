@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Elsecar Club Diary: Committee</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#1d3557">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Club Diary">
+<link rel="apple-touch-icon" href="logo.jpg">
+<link rel="icon" href="logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Roboto+Serif:opsz,wght@8..144,700;8..144,800&display=swap">
+<link rel="stylesheet" href="committee.css?v=1">
+</head>
+<body>
+
+<div class="demobar" id="demoBar" hidden>
+  <div class="wrap"><b>DEMO MODE.</b> Sample events only. Nothing here is saved to the real club diary, and it resets when you refresh. Use the code <b>demo</b>.</div>
+</div>
+
+<header class="band">
+  <div class="wrap">
+    <div class="crest">
+      <img class="logo" src="logo.jpg" alt="Elsecar Cricket Club crest" width="64" height="64">
+      <div>
+        <div class="eyebrow">Elsecar Sports &amp; Social Club · Est. 1854</div>
+        <h1>Club diary</h1>
+      </div>
+    </div>
+    <div class="who" id="who"></div>
+  </div>
+</header>
+
+<!-- Sign in -->
+<section id="signin" hidden>
+  <div class="wrap narrow">
+    <div class="card">
+      <h2>Committee &amp; staff</h2>
+      <p class="hint">Enter the diary code to see the full diary and make changes. Everyone shares one code. Your first name is only used to show who made each change.</p>
+      <form id="signinForm" class="stack" autocomplete="off">
+        <div class="f"><label for="inName">Your first name</label><input id="inName" maxlength="40" autocomplete="given-name" placeholder="e.g. Amanda" required></div>
+        <div class="f"><label for="inCode">Diary code</label><input id="inCode" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+        <p class="err" id="inErr" role="alert" hidden></p>
+        <div class="row"><button class="btn" type="submit" id="inGo">Open diary</button></div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- Not connected yet -->
+<section id="noBackend" hidden>
+  <div class="wrap narrow">
+    <div class="card">
+      <h2>The diary isn't connected yet</h2>
+      <p class="hint">The page is ready but it hasn't been given the address of the diary store. Pete needs to add it to <code>config.js</code>.</p>
+      <p><a class="btn gold" href="?demo=1">Try the demo</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- The diary -->
+<div id="app" hidden>
+  <div class="toolbar">
+    <div class="wrap">
+      <div class="monthnav" id="monthNav">
+        <button class="iconbtn" id="prev" aria-label="Previous month"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+        <h2 id="monthLabel" aria-live="polite"></h2>
+        <button class="iconbtn" id="next" aria-label="Next month"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+        <button class="ghost" id="todayBtn">Today</button>
+      </div>
+      <h2 id="listLabel" class="listlabel" hidden>Coming up (next 3 months)</h2>
+      <div class="row">
+        <div class="seg" role="group" aria-label="View">
+          <button id="vMonth" aria-pressed="true">Month</button>
+          <button id="vList" aria-pressed="false">List</button>
+        </div>
+        <button class="btn gold" id="addBtn">+ Add</button>
+      </div>
+    </div>
+    <div class="wrap"><div class="legend" id="legend"></div></div>
+  </div>
+
+  <main>
+    <div class="wrap grid2">
+      <div id="mainCol">
+        <p class="err banner" id="loadErr" role="alert" hidden></p>
+        <section class="cal" id="calBox" aria-label="Month calendar">
+          <div class="dow"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div>
+          <div class="grid" id="grid"></div>
+        </section>
+        <section id="listBox" aria-label="Upcoming list" hidden></section>
+      </div>
+      <aside id="side"></aside>
+    </div>
+  </main>
+
+  <footer><div class="wrap">Fixtures from Play-Cricket arrive in a later update. <!-- STAGE 4: Play-Cricket fixtures appear as read-only items already (see src in committee.js). --></div></footer>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot" aria-live="polite"></div>
+
+<script src="config.js?v=1"></script>
+<script src="committee.js?v=1"></script>
+</body>
+</html>
