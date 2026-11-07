@@ -82,6 +82,8 @@ When a request comes in, every committee member gets an email. It has the date, 
 * **View date** shows that day in the calendar.
 * **Approve** checks the room is still free, adds "Private party" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm. The public website then shows that session as booked.
 * **Decline** emails the customer to say the club can't take it. You can add a reason. It goes in the email, so keep it polite.
+* **Date passed** means nobody replied before the date. Only Decline is offered, so the customer still gets an answer.
+* A red **Needs attention: emails not sent** box means an email didn't go. Phone or email that customer yourself.
 
 A request does not block the date on the website. Two people can ask for the same evening. Approve one and decline the other.
 
@@ -89,8 +91,9 @@ A request does not block the date on the website. Two people can ask for the sam
 
 * **Cancel booking** asks for a reason, emails it to the customer, and removes the booking and its bar cover reminder from the diary.
 * You can't edit or delete an online booking from the calendar itself. Use Cancel booking so the customer is told.
+* If you add an item and tick "Uses the function room" for a session a customer has booked, the diary refuses it. Untick the box, or cancel the booking first. A morning item (finishing by 12 noon) doesn't clash with anything.
 
-Customer details are only on this page and in the club's admin sheet. They are not in the phone calendar. They are deleted automatically 6 months after the event.
+Customer details are only on this page and in the club's admin sheet. They are not in the phone calendar. They are deleted automatically 6 months after the event, or 30 days after a request is declined.
 
 ## If something goes wrong
 

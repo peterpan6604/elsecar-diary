@@ -50,9 +50,13 @@ Pete decided on 7 Nov 2026 to use **request and approve** instead of instant boo
 | Furthest ahead | 12 months |
 | Guests | Maximum 75 (fire limit). The Settings tab can lower it, never raise it |
 | Session must be free | No approved booking and no committee item ticked "Uses the function room" |
-| Spam | Hidden spam field, a 3 second minimum to fill in the form, 3 requests per device and 20 club-wide every 6 hours, 2 open requests per email address |
+| Spam | Hidden spam field, a 3 second minimum to fill in the form, 3 requests per device and 20 club-wide every 6 hours, 2 open requests per email address. The acknowledgement email holds only the club's own wording (no name or anything typed) |
+| Email allowance | New requests are refused when fewer than 30 emails are left for the day, keeping them for approve, decline and cancel. A failed email shows as "Needs attention" on the committee page |
+| Past requests | A pending request whose date has passed stays in Needs approval with Decline only, so every customer gets a reply |
 | Online bookings in the diary | Can't be edited or deleted as ordinary items. Use Cancel so the customer is told |
-| Contact details | In the Bookings tab and on the signed-in committee page only. Removed 6 months after the event (monthly job) |
+| Contact details | In the Bookings tab and on the signed-in committee page only. Removed 6 months after the event, or 30 days after a decline (monthly job). A privacy notice on the form says this, with the "Privacy contact" from Settings |
+| Committee room items | Ticking "Uses the function room" on a session a customer has booked is refused by the server |
+| Sessions | An item takes a session only if it overlaps it. A 9am to 12 noon item blocks nothing bookable |
 
 ## Architecture
 

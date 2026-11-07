@@ -78,6 +78,15 @@ eq(G.sessionOfTimes_('20:00', '01:00'), 'eve', 'past midnight is evening');
 eq(G.sessionOfTimes_('11:00', '15:00'), 'aft', 'craft fair 11 to 3 is afternoon');
 eq(G.sessionOfTimes_('', ''), 'day', 'all day item takes the whole day');
 eq(G.sessionOfTimes_('15:00', '20:00'), 'day', '3pm to 8pm crosses both sessions');
+eq(G.sessionOfTimes_('09:00', '12:00'), '', 'a morning only item 9 to 12 takes no bookable session');
+eq(G.sessionOfTimes_('10:00', '14:00'), 'aft', '10 to 2 takes the afternoon');
+eq(G.sessionOfTimes_('18:00', '23:00'), 'eve', '6pm to 11pm is the evening');
+eq(G.sessionOfTimes_('17:00', '18:00'), '', 'the gap between sessions takes neither');
+eq(G.sessionOfTimes_('16:30', '17:30'), 'aft', 'overlapping the end of the afternoon takes it');
+eq(G.sessionOfTimes_('12:00', '00:00'), 'day', 'noon to midnight is the whole day');
+ok(G.isFreeIn_([{ date: 'A', sess: G.sessionOfTimes_('09:00', '12:00') }], 'A', 'day'), 'a morning item does not block even the whole day');
+ok(!G.sessionsClash_('', 'day') && !G.sessionsClash_('aft', ''), 'no session never clashes');
+eq(G.takenSessions_([{ date: 'A', sess: '' }]), { A: [] }, 'a morning item marks nothing taken');
 eq(G.takenSessions_([{ date: 'A', sess: 'day' }, { date: 'B', sess: 'eve' }]), { A: ['aft', 'eve'], B: ['eve'] }, 'taken sessions map');
 ok(!G.isFreeIn_([{ date: 'A', sess: 'eve' }], 'A', 'day'), 'whole day blocked by an evening');
 ok(G.isFreeIn_([{ date: 'A', sess: 'eve' }], 'A', 'aft'), 'afternoon free beside an evening');
@@ -89,6 +98,17 @@ ok(/ECC-BBBBBB/.test(G.clashNote_(p1, [p1, p2, p3], [])), 'evening clashes with 
 ok(/2 other requests/.test(G.clashNote_(p2, [p1, p2, p3], [])), 'whole day clashes with both');
 eq(G.clashNote_(p3, [p1, p3], []), '', 'afternoon and evening requests do not clash');
 ok(/in use that day: Quiz/.test(G.clashNote_(p1, [p1], [{ date: 'A', sess: 'eve', title: 'Quiz' }])), 'clash with a committee room item');
+
+/* contact clean-up */
+const T2 = '2026-11-07';
+ok(G.purgeDue_({ status: 'Approved', date: '2026-05-06', received: '2026-01-01 10:00' }, T2), 'event over 6 months ago is cleared');
+ok(!G.purgeDue_({ status: 'Approved', date: '2026-05-07', received: '2026-01-01 10:00' }, T2), 'event exactly 6 months ago is kept until next month');
+ok(G.purgeDue_({ status: 'Pending', date: '', received: '2026-04-01 10:00' }, T2), 'blank event date uses the received date');
+ok(!G.purgeDue_({ status: 'Pending', date: 'rubbish', received: '2026-10-01 10:00' }, T2), 'unreadable date with a recent received date is kept');
+ok(G.purgeDue_({ status: 'Pending', date: '', received: '' }, T2), 'no readable date at all is treated as old');
+ok(G.purgeDue_({ status: 'Declined', date: '2027-06-01', at: '2026-10-08 09:00', received: '2026-10-01 10:00' }, T2), 'declined 30 days ago is cleared even for a future date');
+ok(!G.purgeDue_({ status: 'Declined', date: '2027-06-01', at: '2026-10-09 09:00', received: '2026-10-01 10:00' }, T2), 'declined 29 days ago is kept');
+ok(G.purgeDue_({ status: 'Declined', date: '2027-06-01', at: '', received: '2026-09-01 10:00' }, T2), 'declined with no decision date uses received');
 
 /* dates */
 eq(G.addMonthsIso_('2026-08-31', -6), '2026-02-28', '31 Aug minus 6 months');
@@ -119,10 +139,12 @@ const answer = (fn) => { try { return JSON.stringify(fn()); } catch (e) { return
   const input = Object.assign({}, good, o);
   eq(answer(() => B.validate(input, TODAY, 75)), answer(() => G.validateRequest_(input, TODAY, 75)), 'browser and server agree on case ' + i);
 });
-['12:00|17:00', '18:00|00:00', '12:00|00:00', '20:00|01:00', '|', '15:00|20:00', '17:00|18:00', '09:00|12:00'].forEach(t => {
+['12:00|17:00', '18:00|00:00', '12:00|00:00', '20:00|01:00', '|', '15:00|20:00', '17:00|18:00', '09:00|12:00', '10:00|14:00', '18:00|23:00', '16:30|17:30', '00:00|03:00', '11:00|12:30'].forEach(t => {
   const [a, b] = t.split('|');
   eq(B.sessionOf(a, b), G.sessionOfTimes_(a, b), 'browser and server agree on session ' + t);
 });
+
+['', 'aft', 'eve', 'day'].forEach(a => ['', 'aft', 'eve', 'day'].forEach(b => eq(B.clash(a, b), G.sessionsClash_(a, b), 'browser and server agree on clash ' + a + '/' + b)));
 
 console.log(pass + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

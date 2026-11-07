@@ -62,3 +62,5 @@ fieldset.sessfield legend{font-size:13px;font-weight:600;padding:0;margin-bottom
 .done .row{justify-content:center}
 footer a{color:var(--muted)}
 #formCard,#sentCard,#dayCard{scroll-margin-top:72px}
+.privacy{font-size:12.5px;color:var(--muted);margin:0;line-height:1.5}
+.privacy a{color:var(--c-club)}

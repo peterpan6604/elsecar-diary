@@ -36,6 +36,9 @@ const REQ_CLUB_WIDE = 20;         // requests across the whole club every 6 hour
 const REQ_WINDOW_SECONDS = 21600; // 6 hours, the longest CacheService keeps anything
 const PENDING_PER_EMAIL = 2;      // open requests allowed per email address
 const KEEP_CONTACT_MONTHS = 6;
+const KEEP_DECLINED_DAYS = 30;    // contact details on a declined request go sooner
+const QUOTA_RESERVE = 30;         // emails kept back each day for approve, decline and cancel
+const ATTENTION = 'Needs attention';
 const REMOVED = '(removed)';
 // Bookings tab columns. 1 to 15 were created by setup() in stage 1. 16 to 18 are added by setupStage3().
 const BK = { id: 1, received: 2, status: 3, date: 4, start: 5, end: 6, type: 7, guests: 8, name: 9, email: 10,
@@ -115,6 +118,9 @@ function setupStage3() {
     set.appendRow(['Committee page link', 'https://peterpan6604.github.io/elsecar-diary/committee.html',
       'Put in the booking alert emails so the committee can open the diary']);
   }
+  if (names.indexOf('Privacy contact') < 0) {
+    set.appendRow(['Privacy contact', '', 'Email or phone for questions about personal data. Shown on the booking form. Blank means "contact the club"']);
+  }
 
   const has = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'purgeOldContacts');
   if (!has) ScriptApp.newTrigger('purgeOldContacts').timeBased().onMonthDay(1).atHour(3).create();
@@ -162,24 +168,30 @@ function doPost(e) {
 /* ============ Sign-in ============ */
 
 function login_(b) {
-  const cache = CacheService.getScriptCache();
-  const deviceKey = 'fail:' + (cleanStr_(b.deviceId, 64) || 'unknown');
-  const globalKey = 'fail:all';
-  const deviceFails = Number(cache.get(deviceKey) || 0);
-  const globalFails = Number(cache.get(globalKey) || 0);
-  if (deviceFails >= LOCK_AFTER || globalFails >= GLOBAL_FAIL_LIMIT) {
-    fail_('Too many wrong attempts. Try again in ' + LOCK_MINUTES + ' minutes.');
-  }
-
   const name = cleanStr_(b.name, 40);
   if (!name) fail_('Add your first name so changes show who made them.');
 
-  if (!safeEqual_(String(b.code || '').trim(), prop_('DIARY_CODE'))) {
-    cache.put(deviceKey, String(deviceFails + 1), LOCK_MINUTES * 60);
-    cache.put(globalKey, String(globalFails + 1), LOCK_MINUTES * 60);
-    fail_("That code isn't right. Check with the club secretary.");
+  const cache = CacheService.getScriptCache();
+  const deviceKey = 'fail:' + (cleanStr_(b.deviceId, 64) || 'unknown');
+  const globalKey = 'fail:all';
+  // Read and bump the wrong-code counters inside the lock, so a burst of guesses can't slip past the limit
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const deviceFails = Number(cache.get(deviceKey) || 0);
+    const globalFails = Number(cache.get(globalKey) || 0);
+    if (deviceFails >= LOCK_AFTER || globalFails >= GLOBAL_FAIL_LIMIT) {
+      fail_('Too many wrong attempts. Try again in ' + LOCK_MINUTES + ' minutes.');
+    }
+    if (!safeEqual_(String(b.code || '').trim(), prop_('DIARY_CODE'))) {
+      cache.put(deviceKey, String(deviceFails + 1), LOCK_MINUTES * 60);
+      cache.put(globalKey, String(globalFails + 1), LOCK_MINUTES * 60);
+      fail_("That code isn't right. Check with the club secretary.");
+    }
+    cache.remove(deviceKey);
+  } finally {
+    lock.releaseLock();
   }
-  cache.remove(deviceKey);
 
   const exp = Date.now() + TOKEN_DAYS * 864e5;
   return { ok: true, token: makeToken_({ n: name, exp: exp, v: codeVersion_() }), name: name, expires: exp };
@@ -268,6 +280,17 @@ function saveEvent_(x, user) {
       if (!ev) fail_('Someone else has deleted this item.');
       if (ev.getTag('src') === 'play-cricket') fail_('Fixtures come from Play-Cricket. Change them there.');
       if (ev.getTag('bk')) fail_(BOOKING_LOCKED);
+    }
+    // A committee item that uses the room must not land on a customer's approved booking
+    if (x.cat === 'room' || x.room) {
+      const mine = sessionOfTimes_(x.start, x.end);
+      const hit = bookingEventsOn_(x.date).find(u => sessionsClash_(u.sess, mine));
+      if (hit) {
+        fail_('A customer has booked the function room that ' + SESSIONS[hit.sess].label.toLowerCase() + ' (' + hit.ref +
+          '). Untick "Uses the function room", or cancel that booking first.');
+      }
+    }
+    if (x.id) {
       ev.setTitle(title);
       ev.setTime(start, end);
       ev.setDescription(notes);
@@ -349,6 +372,8 @@ function requestBooking_(b) {
   const allCount = Number(cache.get('req:all') || 0);
   if (devCount >= REQ_PER_DEVICE) fail_("You've sent several requests already. The committee will be in touch.");
   if (allCount >= REQ_CLUB_WIDE) fail_("We've had a lot of requests today. Please try again tomorrow.");
+  // Keep the day's email allowance for approve, decline and cancel emails
+  if (MailApp.getRemainingDailyQuota() < QUOTA_RESERVE) fail_("We can't take online requests right now. Please ring the club.");
 
   const set = settings_();
   const today = todayIso_();
@@ -370,46 +395,52 @@ function requestBooking_(b) {
     ref = newRef_();
     const s = SESSIONS[r.sess];
     appendBooking_({ id: ref, received: nowText_(), status: 'Pending', date: r.date, start: s.start, end: s.end,
-      type: r.type, guests: String(r.guests), name: r.name, email: r.email, phone: r.phone, notes: r.message, sess: s.label });
+      type: r.type, guests: String(r.guests), name: r.name, email: r.email, phone: r.phone, notes: r.message, sess: r.sess });
   } finally {
     lock.releaseLock();
   }
   cache.put(devKey, String(devCount + 1), REQ_WINDOW_SECONDS);
   cache.put('req:all', String(allCount + 1), REQ_WINDOW_SECONDS);
 
-  // Emails: 1 to the customer, 1 alert to the committee (counts once per committee address against the daily quota)
-  const details = detailLines_(r.date, r.sess, r.type, r.guests, ref);
+  // Emails: 1 to the customer, 1 alert to the committee (counts once per committee address against the daily quota).
+  // The acknowledgement goes to an address nobody has checked yet, so it holds only the club's own words:
+  // no name or anything else the visitor typed.
   const sent = sendMail_(r.email, 'Your function room request (' + ref + ')', [
-    'Hello ' + r.name + ',',
+    'Hello,',
     'Thank you for asking to hire the function room at ' + CLUB_NAME + '.',
     'This is a request, not a confirmed booking. The committee will look at it and be in touch. Please do not make firm plans until you hear from us.',
-    details,
+    ['Date: ' + niceDate_(r.date), 'Session: ' + sessionText_(r.sess), 'Reference: ' + ref].join('\n'),
+    'If you did not send this request, you can ignore this email.',
     CLUB_NAME
-  ], set);
+  ], set, 'Acknowledgement to customer (' + ref + ')', r.date);
   const committee = committeeEmails_(set);
   if (committee.length) {
     const link = committeeUrl_(set);
     sendMail_(committee.join(','), 'Function room request: ' + niceDate_(r.date) + ', ' + SESSIONS[r.sess].label.toLowerCase() + ' (' + ref + ')', [
       'A new function room request has come in from the website.',
-      details,
+      detailLines_(r.date, r.sess, r.type, r.guests, ref),
       clash ? 'Clash: ' + clash : '',
       'Sign in to the club diary to see the contact details, then approve or decline it.' + (link ? '\n' + link : ''),
       'It is not a booking until a committee member approves it.'
-    ], null);
+    ], null, 'Committee alert (' + ref + ')', r.date);
+  } else {
+    needsAttention_('No committee emails in Settings, so nobody was alerted (' + ref + ')', r.date);
   }
   return { ok: true, ref: ref, emailed: sent };
 }
 
-/** Committee: requests waiting for a decision, and approved bookings still to come. Contact details only here. */
+/** Committee: requests waiting for a decision (past dates too, so every customer gets a reply),
+ *  approved bookings still to come, and recent emails that failed. Contact details only here. */
 function listBookings_() {
   const today = todayIso_();
-  const rows = bookingRows_().filter(x => x.date >= today && x.name !== REMOVED);
-  const pending = rows.filter(x => x.status === 'Pending').sort(byBkDate_);
-  const approved = rows.filter(x => x.status === 'Approved').sort(byBkDate_);
+  const rows = bookingRows_().filter(x => x.name !== REMOVED);
+  const pending = rows.filter(x => x.status === 'Pending' && isRealDate_(x.date)).sort(byBkDate_);
+  const approved = rows.filter(x => x.status === 'Approved' && x.date >= today).sort(byBkDate_);
+  const future = pending.filter(x => x.date >= today);
   const uses = [];
-  if (pending.length) {
-    const a = toDate_(pending[0].date, '00:00');
-    const z = toDate_(pending[pending.length - 1].date, '00:00');
+  if (future.length) {
+    const a = toDate_(future[0].date, '00:00');
+    const z = toDate_(future[future.length - 1].date, '00:00');
     z.setDate(z.getDate() + 1);
     cal_().getEvents(a, z).forEach(ev => {
       const x = shape_(ev, false);
@@ -418,8 +449,9 @@ function listBookings_() {
   }
   return {
     ok: true,
-    pending: pending.map(p => Object.assign(bkOut_(p), { clash: clashNote_(p, pending, uses) })),
-    upcoming: approved.map(bkOut_)
+    pending: pending.map(p => Object.assign(bkOut_(p), p.date < today ? { past: true, clash: '' } : { clash: clashNote_(p, future, uses) })),
+    upcoming: approved.map(bkOut_),
+    attention: recentAttention_()
   };
 }
 
@@ -440,15 +472,21 @@ function approveBooking_(id, user) {
     const start = toDate_(b.date, s.start);
     const end = toDate_(b.date, s.end);
     if (end <= start) end.setDate(end.getDate() + 1); // evening runs to midnight
-    // No names, emails or phone numbers in the calendar: committee phones subscribe to it.
-    const ev = cal_().createEvent('Private party', start, end,
-      { description: 'Online booking ' + b.id + '. ' + b.type + ', ' + b.guests + ' guests. Contact details are on the committee page.' });
-    ev.setTag('cat', 'room'); ev.setTag('pub', '1'); ev.setTag('room', '1'); ev.setTag('by', user.name); ev.setTag('bk', b.id);
-    const bar = cal_().createEvent('Bar cover needed: private party', start, end,
-      { description: 'Bar cover for online booking ' + b.id + ' (' + b.guests + ' guests).' });
-    bar.setTag('cat', 'staff'); bar.setTag('pub', '0'); bar.setTag('room', '0'); bar.setTag('by', user.name); bar.setTag('bar', b.id);
-
-    updateBooking_(b.row, { status: 'Approved', by: user.name, at: nowText_(), cal: ev.getId(), bar: bar.getId() });
+    let ev = null, bar = null;
+    try {
+      // No names, emails or phone numbers in the calendar: committee phones subscribe to it.
+      ev = cal_().createEvent('Private party', start, end,
+        { description: 'Online booking ' + b.id + '. ' + b.type + ', ' + b.guests + ' guests. Contact details are on the committee page.' });
+      ev.setTag('cat', 'room'); ev.setTag('pub', '1'); ev.setTag('room', '1'); ev.setTag('by', user.name); ev.setTag('bk', b.id);
+      bar = cal_().createEvent('Bar cover needed: private party', start, end,
+        { description: 'Bar cover for online booking ' + b.id + ' (' + b.guests + ' guests).' });
+      bar.setTag('cat', 'staff'); bar.setTag('pub', '0'); bar.setTag('room', '0'); bar.setTag('by', user.name); bar.setTag('bar', b.id);
+      updateBooking_(b, { status: 'Approved', by: user.name, at: nowText_(), cal: ev.getId(), bar: bar.getId() });
+    } catch (err) {
+      // Don't leave a "Private party" in the diary that the Bookings tab knows nothing about
+      [bar, ev].forEach(x => { try { if (x) x.deleteEvent(); } catch (e) { /* already gone */ } });
+      throw err;
+    }
     bumpCache_();
     log_(user.name, 'Approved booking', b.type + ' (' + b.id + ')', b.date);
   } finally {
@@ -463,7 +501,7 @@ function approveBooking_(id, user) {
     terms ? 'Please read the hire terms before your event:\n' + terms : 'The club will send you the hire terms before your event.',
     'If you need to change or cancel, please tell us as soon as you can by replying to this email.',
     CLUB_NAME
-  ], set);
+  ], set, 'Confirmation to customer (' + b.id + ')', b.date);
   return { ok: true, emailed: sent };
 }
 
@@ -476,7 +514,7 @@ function declineBooking_(id, reason, user) {
     why ? 'The committee said: ' + why : '',
     'You are welcome to send a request for another date.',
     CLUB_NAME
-  ], settings_());
+  ], settings_(), 'Decline to customer (' + b.id + ')', b.date);
   return { ok: true, emailed: sent };
 }
 
@@ -490,7 +528,7 @@ function cancelBooking_(id, reason, user) {
     'Reason: ' + why,
     'We are sorry for the trouble this causes. Please reply to this email if you have any questions.',
     CLUB_NAME
-  ], settings_());
+  ], settings_(), 'Cancellation to customer (' + b.id + ')', b.date);
   return { ok: true, emailed: sent };
 }
 
@@ -508,7 +546,7 @@ function decide_(id, mustBe, change, user, logWhat, removeEvents) {
       });
       bumpCache_();
     }
-    updateBooking_(b.row, Object.assign({ by: user.name, at: nowText_() }, change));
+    updateBooking_(b, Object.assign({ by: user.name, at: nowText_() }, change));
     log_(user.name, logWhat, b.type + ' (' + b.id + ')', b.date);
     return b;
   } finally {
@@ -516,17 +554,23 @@ function decide_(id, mustBe, change, user, logWhat, removeEvents) {
   }
 }
 
-/** Monthly job (trigger made by setupStage3): removes customer contact details 6 months after the event. */
+/** Monthly job (trigger made by setupStage3): removes customer contact details
+ *  6 months after the event, or 30 days after a request was declined. */
 function purgeOldContacts() {
-  const cutoff = addMonthsIso_(todayIso_(), -KEEP_CONTACT_MONTHS);
+  const today = todayIso_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   let n = 0;
-  bookingRows_().forEach(b => {
-    if (isRealDate_(b.date) && b.date < cutoff && b.name !== REMOVED) {
-      updateBooking_(b.row, { name: REMOVED, email: '', phone: '', notes: '', reason: '' });
+  try {
+    bookingRows_().forEach(b => {
+      if (b.name === REMOVED || !purgeDue_(b, today)) return;
+      updateBooking_(b, { name: REMOVED, email: '', phone: '', notes: '', reason: '' });
       n++;
-    }
-  });
-  Logger.log('Removed contact details from ' + n + ' booking(s) older than ' + cutoff + '.');
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  Logger.log('Removed contact details from ' + n + ' booking(s).');
 }
 
 /* ---- Bookings tab ---- */
@@ -551,17 +595,26 @@ function findBooking_(rows, id) {
   return b;
 }
 
-function appendBooking_(vals) {
-  const sh = sheet_('Bookings');
+/** One row of cell values, every one guarded against formulas. Session is stored as its label ("Evening"). */
+function bookingRowValues_(o) {
   const row = new Array(BK_COLS).fill('');
-  Object.keys(vals).forEach(k => { row[BK[k] - 1] = safeCell_(vals[k]); });
-  // Plain text format first, so Sheets keeps dates, times and phone numbers exactly as written
-  sh.getRange(sh.getLastRow() + 1, 1, 1, BK_COLS).setNumberFormat('@').setValues([row]);
+  Object.keys(BK).forEach(k => {
+    let v = o[k] == null ? '' : o[k];
+    if (k === 'sess' && SESSIONS[v]) v = SESSIONS[v].label;
+    row[BK[k] - 1] = safeCell_(v);
+  });
+  return row;
 }
 
-function updateBooking_(rowNum, vals) {
+function appendBooking_(vals) {
   const sh = sheet_('Bookings');
-  Object.keys(vals).forEach(k => sh.getRange(rowNum, BK[k]).setNumberFormat('@').setValue(safeCell_(vals[k])));
+  // Plain text format first, so Sheets keeps dates, times and phone numbers exactly as written
+  sh.getRange(sh.getLastRow() + 1, 1, 1, BK_COLS).setNumberFormat('@').setValues([bookingRowValues_(vals)]);
+}
+
+/** Rewrites one booking row in a single write. Only call it inside the script lock, with a row just read. */
+function updateBooking_(b, vals) {
+  sheet_('Bookings').getRange(b.row, 1, 1, BK_COLS).setNumberFormat('@').setValues([bookingRowValues_(Object.assign({}, b, vals))]);
 }
 
 /** What the committee page gets for one booking. */
@@ -574,26 +627,40 @@ function byBkDate_(a, b) { return (a.date + a.sess).localeCompare(b.date + b.ses
 
 /** Every room use on one date, from the calendar: approved bookings and committee items ticked "Uses the function room". */
 function roomUsesOn_(date) {
-  const a = toDate_(date, '00:00');
-  const z = toDate_(date, '00:00');
-  z.setDate(z.getDate() + 1);
   const out = [];
-  cal_().getEvents(a, z).forEach(ev => {
+  eventsOnDate_(date).forEach(ev => {
     const x = shape_(ev, false);
     if (x.date === date && usesRoom_(ev, x)) out.push({ date: date, sess: sessionOfTimes_(x.start, x.end) });
   });
   return out;
 }
 
+/** Approved online bookings on one date (their "Private party" events). */
+function bookingEventsOn_(date) {
+  const out = [];
+  eventsOnDate_(date).forEach(ev => {
+    const ref = ev.getTag('bk');
+    if (!ref) return;
+    const x = shape_(ev, false);
+    if (x.date === date) out.push({ date: date, sess: sessionOfTimes_(x.start, x.end), ref: ref });
+  });
+  return out;
+}
+
+function eventsOnDate_(date) {
+  const a = toDate_(date, '00:00');
+  const z = toDate_(date, '00:00');
+  z.setDate(z.getDate() + 1);
+  return cal_().getEvents(a, z);
+}
+
 /* ---- Email ---- */
 
-/** Sends one plain text email (never HTML, so nothing a customer types can become a link or markup). Returns true if sent. */
-function sendMail_(to, subject, paragraphs, set) {
+/** Sends one plain text email (never HTML, so nothing typed can become a link or markup). Returns true if sent.
+ *  If it can't be sent, a "Needs attention" row goes in the Change log and shows on the committee page. */
+function sendMail_(to, subject, paragraphs, set, what, date) {
   try {
-    if (MailApp.getRemainingDailyQuota() < String(to).split(',').length) {
-      console.error('Email quota used up. Not sent: ' + subject);
-      return false;
-    }
+    if (MailApp.getRemainingDailyQuota() < String(to).split(',').length) throw new Error('daily email limit reached');
     const opts = { to: to, subject: subject, body: paragraphs.filter(Boolean).join('\n\n'), name: CLUB_NAME };
     const replyTo = set ? replyTo_(set) : '';
     if (replyTo) opts.replyTo = replyTo;
@@ -601,8 +668,28 @@ function sendMail_(to, subject, paragraphs, set) {
     return true;
   } catch (e) {
     console.error('Email failed: ' + subject + ': ' + e);
+    needsAttention_('Email not sent: ' + what, date);
     return false;
   }
+}
+
+/** Logs a problem the committee must deal with by hand. No contact details: the Change log is never cleaned. */
+function needsAttention_(item, date) {
+  try { log_('Diary', ATTENTION, item, date); } catch (e) { console.error('Could not log: ' + item); }
+}
+
+/** "Needs attention" rows from the last 14 days, newest first. */
+function recentAttention_() {
+  const sh = sheet_('Change log');
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const n = Math.min(200, last - 1);
+  const since = addDaysIso_(todayIso_(), -14);
+  return sh.getRange(last - n + 1, 1, n, 5).getValues().reverse()
+    .filter(r => String(r[2]) === ATTENTION)
+    .map(r => ({ when: cellText_(r[0]), item: cellText_(r[3]), date: cellText_(r[4]) }))
+    .filter(x => x.when.slice(0, 10) >= since)
+    .slice(0, 10);
 }
 
 function detailLines_(date, sess, type, guests, ref) {
@@ -625,7 +712,7 @@ function settings_() {
 function publicRules_() {
   const set = settings_();
   return { today: todayIso_(), capacity: capacity_(set), termsUrl: termsUrl_(set), minNotice: MIN_NOTICE_DAYS,
-    maxMonths: MAX_AHEAD_MONTHS, shortNoticeType: SHORT_NOTICE_TYPE, types: EVENT_TYPES };
+    maxMonths: MAX_AHEAD_MONTHS, shortNoticeType: SHORT_NOTICE_TYPE, types: EVENT_TYPES, privacyContact: privacyContact_(set) };
 }
 
 function todayIso_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
@@ -682,26 +769,40 @@ function validateRequest_(b, today, capacity) {
   return { name: name, phone: phone, email: email, date: date, sess: sess, type: type, guests: guests, message: message };
 }
 
-/** Which session a diary item uses, from its times. Matches sessionOf() in committee.js. */
+/** Which bookable session a diary item takes, from its times: 'aft', 'eve', 'day', or '' if neither.
+ *  Afternoon is 12:00 to 17:00 and Evening 18:00 to midnight, so a 09:00 to 12:00 item takes neither.
+ *  Matches sessionOf() in rules.js. */
 function sessionOfTimes_(start, end) {
   if (!start) return 'day'; // all day
-  const s = +start.slice(0, 2);
-  let eh = +String(end || '00:00').slice(0, 2);
-  if (eh === 0) eh = 24;
-  if (end <= start) eh += 24;
-  if (eh > 48) eh -= 24;
-  const aft = s < 17, eve = eh > 18 || s >= 17;
-  return aft && eve ? 'day' : aft ? 'aft' : 'eve';
+  const mins = t => { const p = String(t || '00:00').split(':'); return (+p[0]) * 60 + (+p[1] || 0); };
+  const s = mins(start);
+  let e = mins(end || '00:00');
+  if (e <= s) e += 1440; // finishes after midnight
+  const aft = s < 17 * 60 && e > 12 * 60;
+  const eve = s < 24 * 60 && e > 18 * 60;
+  return aft && eve ? 'day' : aft ? 'aft' : eve ? 'eve' : '';
 }
 
-function sessionsClash_(a, b) { return a === 'day' || b === 'day' || a === b; }
+function sessionsClash_(a, b) { return !!a && !!b && (a === 'day' || b === 'day' || a === b); }
+
+/** Is it time to remove this booking's contact details? Pure, so tests can check it. */
+function purgeDue_(b, today) {
+  if (b.status === 'Declined') {
+    const decided = String(b.at || '').slice(0, 10);
+    const when = isRealDate_(decided) ? decided : String(b.received || '').slice(0, 10);
+    return !isRealDate_(when) || daysBetween_(when, today) >= KEEP_DECLINED_DAYS;
+  }
+  // A blank or unreadable event date falls back to the date the request came in
+  const event = isRealDate_(b.date) ? b.date : String(b.received || '').slice(0, 10);
+  return !isRealDate_(event) || event < addMonthsIso_(today, -KEEP_CONTACT_MONTHS);
+}
 
 /** [{date, sess}] → { '2026-11-14': ['aft', 'eve'] }. Whole day takes both. */
 function takenSessions_(uses) {
   const m = {};
   uses.forEach(u => {
     const t = m[u.date] || (m[u.date] = {});
-    if (u.sess === 'day') { t.aft = true; t.eve = true; } else t[u.sess] = true;
+    if (u.sess === 'day') { t.aft = true; t.eve = true; } else if (u.sess) t[u.sess] = true;
   });
   const out = {};
   Object.keys(m).sort().forEach(d => { out[d] = ['aft', 'eve'].filter(s => m[d][s]); });
@@ -736,6 +837,7 @@ function committeeEmails_(set) { return String(set['Notification emails'] || '')
 function replyTo_(set) { const v = String(set['Reply-to email'] || ''); return isEmail_(v) ? v : ''; }
 function termsUrl_(set) { const v = String(set['Hire terms link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
 function committeeUrl_(set) { const v = String(set['Committee page link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
+function privacyContact_(set) { return cleanStr_(String(set['Privacy contact'] || '').replace(/[<>]/g, ''), 120); }
 function capacity_(set) {
   const n = parseInt(set['Room capacity'], 10);
   return n >= 1 && n <= MAX_GUESTS ? n : MAX_GUESTS;

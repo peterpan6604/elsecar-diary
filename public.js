@@ -10,6 +10,12 @@ const R = window.DiaryRules;
 const QS = new URLSearchParams(location.search);
 const DEMO = QS.get('demo') === '1';
 const HAS_BACKEND = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(CFG.BACKEND_URL || '');
+/* Demo mode only: load the pretend server. Normal visits never download it. */
+const demoReady = DEMO ? new Promise((ok, no) => {
+  const s = document.createElement('script');
+  s.src = 'demo.js?v=2'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  document.head.append(s);
+}) : null;
 const IN_FRAME = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
 
 const CATS = {
@@ -36,6 +42,7 @@ function h(tag, attrs, ...kids) {
     const v = attrs[k];
     if (v == null || v === false) continue;
     if (k === 'class') n.className = v;
+    else if (k === 'style') n.style.cssText = v; // set through the style object, which the page's security policy allows
     else if (k === 'c') n.style.setProperty('--c', v);
     else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
     else if (v === true) n.setAttribute(k, '');
@@ -64,7 +71,7 @@ const S = {
   taken: {},                 // date -> sessions already booked, for every date loaded so far
   known: new Set(),          // dates we have room information for
   coming: [],
-  rules: { capacity: R.MAX_GUESTS, termsUrl: '', minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS, shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES },
+  rules: { privacyContact: '', capacity: R.MAX_GUESTS, termsUrl: '', minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS, shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES },
   loadErr: '', loading: false,
   form: null,                // open request form: { date, sess, type, ... }
   sent: null                 // { ref, emailed } after a request is sent
@@ -81,7 +88,7 @@ async function getPublic(from, to) {
   const key = from + ':' + to;
   if (cache[key] && Date.now() - cache[key].t < 60000) return cache[key].data;
   let data;
-  if (DEMO) data = await window.DiaryDemo.api('public', { from, to });
+  if (DEMO) { await demoReady; data = await window.DiaryDemo.api('public', { from, to }); }
   else {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 25000);
@@ -102,14 +109,15 @@ async function getPublic(from, to) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(r.today || '')) S.today = r.today;
     S.rules = { capacity: +r.capacity || R.MAX_GUESTS, termsUrl: /^https:\/\//.test(r.termsUrl || '') ? r.termsUrl : '',
       minNotice: +r.minNotice || R.MIN_NOTICE, maxMonths: +r.maxMonths || R.MAX_MONTHS,
-      shortNoticeType: r.shortNoticeType || R.SHORT_NOTICE_TYPE, types: Array.isArray(r.types) && r.types.length ? r.types.map(String) : R.TYPES };
+      shortNoticeType: r.shortNoticeType || R.SHORT_NOTICE_TYPE, types: Array.isArray(r.types) && r.types.length ? r.types.map(String) : R.TYPES,
+      privacyContact: String(r.privacyContact || '').slice(0, 120) };
   }
   cache[key] = { t: Date.now(), data };
   return data;
 }
 
 async function sendRequest(body) {
-  if (DEMO) return window.DiaryDemo.api('request', body);
+  if (DEMO) { await demoReady; return window.DiaryDemo.api('request', body); }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30000);
   let data;
@@ -267,6 +275,18 @@ function rulesList() {
     S.rules.termsUrl ? h('li', null, 'Read the ', h('a', { href: S.rules.termsUrl, target: '_blank', rel: 'noopener' }, 'hire terms'), '.') : null);
 }
 
+/** UK GDPR: who holds the details, why, who sees them, how long, and who to ask. */
+function privacyNote() {
+  const c = S.rules.privacyContact;
+  const contact = !c ? 'contact the club'
+    : R.isEmail(c) ? h('a', { href: 'mailto:' + encodeURIComponent(c).replace(/%40/g, '@') }, c) : c;
+  return h('p', { class: 'privacy' },
+    h('b', null, 'Your details. '),
+    'Elsecar Sports & Social Club uses your name, phone number and email only to deal with this booking request. Only the committee sees them. ',
+    "We delete your contact details 6 months after the event, or 30 days after we reply if we can't take the booking. ",
+    'Questions about your data: ', contact, '.');
+}
+
 function ctaCard() {
   return h('div', { class: 'card cta' },
     h('h3', null, 'Hire the function room'),
@@ -343,6 +363,7 @@ function formCard() {
     h('div', { class: 'f full' }, h('label', { for: 'rMsg' }, 'Message (optional)'), message),
     trap,
     h('div', { class: 'full' }, rulesList()),
+    h('div', { class: 'full' }, privacyNote()),
     h('div', { class: 'full' }, err),
     h('div', { class: 'row full' }, submit, h('button', { class: 'btn line', type: 'button', onclick: () => { S.form = null; renderSide(); } }, 'Close')));
 
@@ -394,7 +415,7 @@ $('todayBtn').addEventListener('click', () => setMonth(now.getFullYear(), now.ge
 function boot() {
   if (DEMO) {
     $('demoBar').hidden = false;
-    $('demoReset').addEventListener('click', () => { window.DiaryDemo.reset(); location.reload(); });
+    $('demoReset').addEventListener('click', () => demoReady.then(() => { window.DiaryDemo.reset(); location.reload(); }));
   }
   if (IN_FRAME) { $('fullLink').hidden = false; if (DEMO) $('fullLink').href = 'index.html?demo=1'; }
   if (!DEMO && !HAS_BACKEND) { $('noBackend').hidden = false; return; }

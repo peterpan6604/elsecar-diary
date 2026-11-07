@@ -73,17 +73,19 @@ function validate(b, today, capacity) {
   return { name, phone, email, date, sess, type, guests, message };
 }
 
+/** Which bookable session a diary item takes: 'aft', 'eve', 'day', or '' if neither (for example 09:00 to 12:00).
+    Same as sessionOfTimes_ in Code.gs. */
 function sessionOf(start, end) {
   if (!start) return 'day';
-  const s = +start.slice(0, 2);
-  let eh = +String(end || '00:00').slice(0, 2);
-  if (eh === 0) eh = 24;
-  if (end <= start) eh += 24;
-  if (eh > 48) eh -= 24;
-  const aft = s < 17, eve = eh > 18 || s >= 17;
-  return aft && eve ? 'day' : aft ? 'aft' : 'eve';
+  const mins = t => { const p = String(t || '00:00').split(':'); return (+p[0]) * 60 + (+p[1] || 0); };
+  const s = mins(start);
+  let e = mins(end || '00:00');
+  if (e <= s) e += 1440;
+  const aft = s < 17 * 60 && e > 12 * 60;
+  const eve = s < 24 * 60 && e > 18 * 60;
+  return aft && eve ? 'day' : aft ? 'aft' : eve ? 'eve' : '';
 }
-const clash = (a, b) => a === 'day' || b === 'day' || a === b;
+const clash = (a, b) => !!a && !!b && (a === 'day' || b === 'day' || a === b);
 /** Given the sessions already taken on a date (['aft'], ['aft','eve']...), can this session be asked for? */
 const canAsk = (taken, sess) => !(taken || []).some(t => clash(t, sess));
 

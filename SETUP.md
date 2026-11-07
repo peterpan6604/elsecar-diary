@@ -21,6 +21,7 @@ Takes about 15 minutes. Do every step **signed in as the club account** (`elseca
 1. **Project Settings** → scroll to **Script Properties** → **Add script property**.
 2. Property: `DIARY_CODE`. Value: the code you'll give the committee.
    - Use **at least 6 characters**. Don't use 1854; that was only for the mock-up and everyone can guess it.
+   - Better still, use **four random words**, for example `kettle river pencil oak`. It is easy to remember and very hard to guess.
 3. **Save script properties**.
 
 To change the code later (for example when someone leaves the committee), edit this value. Everyone is logged out and needs the new code.
@@ -68,7 +69,7 @@ Do this **after** the stage 3 code has been reviewed and Pete has said it can go
 2. In the function drop-down choose **setupStage3** and click **Run**.
    - Google asks for permission again, because the diary can now send emails and run a monthly job. Choose the club account → **Advanced** → **Go to Club Diary (unsafe)** → **Allow**.
    - The log should say "Stage 3 ready" and how many emails are left today.
-   - It adds three columns to the end of the **Bookings** tab (Session, Bar cover event ID, Reason), adds a **Committee page link** row to **Settings**, and creates the monthly clean-up job. Running it twice does no harm.
+   - It adds three columns to the end of the **Bookings** tab (Session, Bar cover event ID, Reason), adds **Committee page link** and **Privacy contact** rows to **Settings**, and creates the monthly clean-up job. Running it twice does no harm.
 3. Redeploy: **Deploy** → **Manage deployments** → pencil → Version: **New version** → **Deploy**. Never "New deployment".
 4. Check `<exec-url>?action=ping` still shows `{"ok":true,...}`.
 5. Check `<exec-url>?action=public&from=2026-11-01&to=2026-11-30` shows `roomTaken` and `rules`.
@@ -77,8 +78,17 @@ Do this **after** the stage 3 code has been reviewed and Pete has said it can go
    - **Hire terms link**: leave blank until the terms are agreed. Blank means the confirmation email says "The club will send you the hire terms".
    - **Reply-to email**: the address customers should reply to. Blank means replies go to the club Gmail.
    - **Room capacity**: 75. It can be lowered but never raised above 75.
+   - **Privacy contact**: an email address or phone number people can use to ask about their personal data. It is shown on the booking form. Blank means the form says "contact the club".
 7. Send yourself a test request from the public page, approve it on the committee page, then cancel it. You should get three emails, and the committee addresses one alert.
 
-**The monthly clean-up job** (`purgeOldContacts`) runs on the 1st of each month at about 3am. It blanks the name, email, phone, message and reason on every booking whose date was more than 6 months ago. You can see it under **Triggers** (the alarm clock icon). If it ever goes missing, run **setupStage3** again.
+**The monthly clean-up job** (`purgeOldContacts`) runs on the 1st of each month at about 3am. It blanks the name, email, phone, message and reason on every booking whose date was more than 6 months ago, and on every declined request 30 days after it was declined. You can see it under **Triggers** (the alarm clock icon). If it ever goes missing, run **setupStage3** again.
 
-**Email limit:** a free Google account can send to about 100 people a day. A request uses 1 for the customer plus 1 for each committee address. Approve, decline and cancel use 1 each. If the limit is reached, the request is still saved and shows on the committee page, but the emails are skipped. Phone the customer in that case.
+**Email limit:** a free Google account can send to about 100 people a day. A request uses 1 for the customer plus 1 for each committee address. Approve, decline and cancel use 1 each.
+- When fewer than 30 emails are left for the day, the website stops taking new requests and says "We can't take online requests right now. Please ring the club." That keeps emails back for approving, declining and cancelling.
+- If an email still can't be sent, the action is saved, the committee page shows a red **Needs attention: emails not sent** box for 14 days, and the Change log gets a "Needs attention" row. Phone or email that customer yourself.
+
+**If the form is flooded** (someone sends lots of fake requests):
+- It looks like many requests in Needs approval with made-up names, or the website saying "We've had a lot of requests today" or "We can't take online requests right now".
+- Nothing is booked by a fake request, and the calendar is not touched. Decline the fake ones without a reason, or leave them. The monthly job clears them.
+- The committee can still take bookings by phone and add them to the diary as normal.
+- The limits reset by themselves within 6 hours (the email allowance resets daily). Nothing needs switching off.

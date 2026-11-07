@@ -9,6 +9,23 @@ const CFG = window.DIARY_CONFIG || {};
 const QS = new URLSearchParams(location.search);
 const DEMO = QS.get('demo') === '1';
 const DEMO_OFFLINE = DEMO && QS.get('offline') === '1'; // test aid: pretend there is no signal
+
+// Never run the committee page inside someone else's frame (stops "clickjacking": tricking a signed-in
+// member into clicking hidden buttons). Demo mode holds no real data, so it may be framed for testing.
+if (window.self !== window.top && !DEMO) {
+  const a = document.createElement('a');
+  a.href = location.href; a.target = '_top'; a.textContent = 'Open the club diary in its own window';
+  document.body.replaceChildren(a);
+  return;
+}
+
+/* Demo mode only: load the pretend server. Normal visits never download it. */
+const demoReady = DEMO ? new Promise((ok, no) => {
+  const s = document.createElement('script');
+  s.src = 'demo.js?v=2'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  document.head.append(s);
+}) : null;
+
 const HAS_BACKEND = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(CFG.BACKEND_URL || '');
 
 const CATS = {
@@ -41,6 +58,7 @@ function h(tag, attrs, ...kids) {
     const v = attrs[k];
     if (v == null || v === false) continue;
     if (k === 'class') n.className = v;
+    else if (k === 'style') n.style.cssText = v; // set through the style object, which the page's security policy allows
     else if (k === 'c') n.style.setProperty('--c', v);
     else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
     else if (v === true) n.setAttribute(k, '');
@@ -61,7 +79,7 @@ const S = {
   y: now.getFullYear(), m: now.getMonth(), sel: TODAY,
   off: new Set(),         // categories hidden by the filter chips
   events: [], log: [], feed: '', loadErr: '', loading: false,
-  pending: [], upcoming: [], outbox: [], bkLoaded: false, bkErr: '' // function room requests (stage 3)
+  pending: [], upcoming: [], outbox: [], attention: [], bkLoaded: false, bkErr: '' // function room requests (stage 3)
 };
 let reqId = 0;
 
@@ -187,7 +205,7 @@ async function loadFeed() {
 async function loadBookings() {
   try {
     const r = await api('bookings');
-    S.pending = r.pending || []; S.upcoming = r.upcoming || []; S.outbox = r.outbox || []; S.bkErr = '';
+    S.pending = r.pending || []; S.upcoming = r.upcoming || []; S.outbox = r.outbox || []; S.attention = r.attention || []; S.bkErr = '';
   } catch (e) { if (e.auth) return; S.bkErr = e.message; }
   S.bkLoaded = true;
   renderSide();
@@ -333,17 +351,28 @@ function pendingCard() {
     h('div', { class: 'row spread' }, h('h3', { style: 'margin:0' }, 'Needs approval'),
       S.pending.length ? h('span', { class: 'tag pend' }, S.pending.length + ' waiting') : null),
     h('p', { class: 'sub', style: 'margin-top:4px' }, 'Function room requests from the website. A request does not block the date until you approve it.'),
-    bkCardBody(S.pending, 'Nothing waiting.', b => h('div', { class: 'req' + (b.clash ? ' clash' : '') },
+    attentionEl(),
+    bkCardBody(S.pending, 'Nothing waiting.', b => h('div', { class: 'req' + (b.clash || b.past ? ' clash' : '') },
       h('div', { class: 'ttl' }, b.type, h('span', { class: 'ref' }, b.id)),
       h('div', { class: 'meta' }, bkMeta(b)),
+      b.past ? h('p', { class: 'warn', role: 'note' }, h('b', null, 'Date passed. '), 'Nobody replied in time. Decline it so the customer gets an answer.') : null,
       b.clash ? h('p', { class: 'warn', role: 'note' }, h('b', null, 'Clash: '), b.clash) : null,
       contactEl(b),
       b.message ? h('div', { class: 'note' }, '“' + b.message + '”') : null,
       h('div', { class: 'meta' }, 'Received ' + whenText(b.received)),
       h('div', { class: 'row' },
-        h('button', { class: 'btn small', onclick: () => bookingAction(b, 'approve') }, 'Approve'),
+        b.past ? null : h('button', { class: 'btn small', onclick: () => bookingAction(b, 'approve') }, 'Approve'),
         h('button', { class: 'btn small line', onclick: () => bookingAction(b, 'decline') }, 'Decline'),
-        h('button', { class: 'btn small line', onclick: () => viewDate(b.date) }, 'View date')))));
+        b.past ? null : h('button', { class: 'btn small line', onclick: () => viewDate(b.date) }, 'View date')))));
+}
+
+/** Emails that could not be sent in the last 14 days. Someone needs to phone or email the customer. */
+function attentionEl() {
+  if (!S.attention.length) return null;
+  return h('div', { class: 'attention', role: 'alert' },
+    h('b', null, 'Needs attention: emails not sent'),
+    h('p', null, 'Please contact these people yourself. Their details are in the cards below or in the Bookings tab.'),
+    h('ul', null, S.attention.map(a => h('li', null, a.item + (a.date ? ' · ' + short(a.date) : '') + ' · ' + whenText(a.when)))));
 }
 
 function upcomingCard() {
@@ -431,23 +460,13 @@ let toastTimer;
 function toast(msg) { fill($('toastRoot'), h('div', { class: 'toast', role: 'status' }, msg)); clearTimeout(toastTimer); toastTimer = setTimeout(() => fill($('toastRoot')), 3000); }
 
 /* ---------- add / edit / delete ---------- */
-function sessionOf(e) { // which part of the day an item uses: aft, eve or day
-  if (!e.start) return 'day';
-  const s = +e.start.slice(0, 2); let eh = +e.end.slice(0, 2);
-  if (eh === 0) eh = 24;
-  if (e.end <= e.start) eh += 24;
-  if (eh > 48) eh -= 24;
-  const aft = s < 17, eve = eh > 18 || s >= 17;
-  return aft && eve ? 'day' : aft ? 'aft' : 'eve';
-}
+// Which bookable session an item takes ('aft', 'eve', 'day' or '' for none). The rule lives in rules.js, shared with the server's copy.
+const sessionOf = e => window.DiaryRules.sessionOf(e.allDay ? '' : e.start, e.end);
 const usesRoom = e => e.cat === 'room' || e.room;
 function clashWith(data, editingId) {
-  // Checked against what is on screen. The server-side check arrives with online booking (stage 3).
+  // A quick check against what is on screen. The server checks again against approved bookings.
   const mine = sessionOf(data);
-  const bad = S.events.find(e => e.id !== editingId && e.date === data.date && usesRoom(e) && (() => {
-    const s = sessionOf(e); return s === 'day' || mine === 'day' || s === mine;
-  })());
-  return bad || null;
+  return S.events.find(e => e.id !== editingId && e.date === data.date && usesRoom(e) && window.DiaryRules.clash(sessionOf(e), mine)) || null;
 }
 
 function openEditor(ev) {
@@ -546,7 +565,7 @@ $('addBtn').addEventListener('click', () => openEditor(null));
 /* ---------- demo mode: shared sample data in demo.js ---------- */
 async function demoApi(action, p) {
   if (DEMO_OFFLINE) { await new Promise(r => setTimeout(r, 120)); throw new ApiError("Can't reach the diary. Check your signal or wifi and try again. Nothing was changed."); }
-  try { return await window.DiaryDemo.api(action, p, S.session ? S.session.name : 'Demo'); }
+  try { await demoReady; return await window.DiaryDemo.api(action, p, S.session ? S.session.name : 'Demo'); }
   catch (e) { throw new ApiError(e.message); }
 }
 
@@ -554,7 +573,7 @@ async function demoApi(action, p) {
 function boot() {
   if (DEMO) {
     $('demoBar').hidden = false;
-    $('demoReset').addEventListener('click', () => { window.DiaryDemo.reset(); location.reload(); });
+    $('demoReset').addEventListener('click', () => demoReady.then(() => { window.DiaryDemo.reset(); location.reload(); }));
   }
   if (!DEMO && !HAS_BACKEND) return showOnly('noBackend');
   if (!DEMO) {

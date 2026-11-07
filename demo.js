@@ -2,11 +2,13 @@
    Pretends to be the Apps Script server so the pages can be tried without touching the real diary.
    Sample data is kept in this browser only (localStorage), so the public demo and the committee demo
    share it: send a request on index.html?demo=1, then approve it on committee.html?demo=1.
-   Emails are not sent. They are listed in a "demo outbox" on the committee page instead. */
+   Emails are not sent. They are listed in a "demo outbox" on the committee page instead.
+   Test switches (add to the page address): quota=low pretends the day's email allowance is nearly used up,
+   mailfail=1 pretends every email fails, so the "Needs attention" warning shows. */
 (function () {
 'use strict';
 const R = window.DiaryRules;
-const KEY = 'ecc-diary-demo-v3';
+const KEY = 'ecc-diary-demo-v4';
 const pad = n => String(n).padStart(2, '0');
 const isoOf = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const TODAY = isoOf(new Date());
@@ -14,6 +16,7 @@ const nowText = () => { const d = new Date(); return TODAY + ' ' + pad(d.getHour
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const fail = msg => { const e = new Error(msg); e.userFacing = true; throw e; };
 const CATS = ['room', 'club', 'cricket', 'meet', 'staff'];
+const FLAGS = new URLSearchParams(location.search);
 const LOCKED = 'This is an online booking. To cancel it, use Cancel in the Function room bookings card so the customer is told.';
 
 let memory = null; // used if this browser blocks storage
@@ -25,7 +28,7 @@ function load() {
 function save(st) { memory = st; try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
 
 function seed() {
-  const st = { day: TODAY, n: 0, fails: 0, events: [], bookings: [], log: [], outbox: [], sent: {} };
+  const st = { day: TODAY, n: 0, fails: 0, events: [], bookings: [], log: [], outbox: [], sent: {}, attention: [] };
   const d = off => R.addDays(TODAY, off);
   const mk = (off, start, end, title, cat, o) => Object.assign({ id: 'demo' + (++st.n), date: d(off), start, end, allDay: false, title, cat,
     src: '', status: 'confirmed', notes: '', pub: cat === 'room' || cat === 'club' || cat === 'cricket', room: cat === 'room', by: 'Amanda', bk: '' }, o || {});
@@ -39,6 +42,7 @@ function seed() {
     mk(6, '13:00', '17:00', '1st XI v Hoyland Town (H)', 'cricket', { src: 'play-cricket', by: '' }),
     mk(9, '19:30', '23:00', 'Presentation night', 'cricket', { room: true, pub: true }),
     mk(10, '', '', 'Brewery delivery', 'staff', { allDay: true, pub: false }),
+    mk(15, '09:00', '12:00', 'Over 60s coffee morning', 'club', { room: true, notes: 'Uses the function room in the morning only.' }),
     mk(21, '19:30', '21:00', 'Committee meeting', 'meet'),
     mk(35, '20:00', '01:00', 'Christmas party night', 'club', { room: true })
   ];
@@ -46,13 +50,14 @@ function seed() {
     received: R.addDays(TODAY, -1) + ' 11:05', status, date: d(off), sess, type, guests: String(guests), name,
     email: name.split(' ')[0].toLowerCase() + '@example.com', phone: '07700 900' + String(100 + st.n++).slice(-3), message: '', by: '', at: '', cal: '', bar: '', reason: '' }, o || {});
   st.bookings = [
+    bk(-2, 'eve', 'Anniversary', 30, 'Ruth Walker', 'Pending', { received: R.addDays(TODAY, -12) + ' 19:40' }),
     bk(3, 'aft', 'Funeral wake', 40, 'Margaret Hill', 'Pending', { message: 'For my dad. Sandwiches from our own caterer.' }),
     bk(9, 'eve', 'Birthday party', 50, 'Kev Barnes', 'Pending'),
     bk(12, 'eve', '18th birthday', 60, 'Dave Royston', 'Pending', { message: 'For his son. Asked about a buffet.' }),
     bk(12, 'day', 'Wedding or engagement', 75, 'Chloe Benson', 'Pending'),
     bk(10, 'aft', 'Christening', 45, 'Lisa Moore', 'Approved', { by: 'Amanda', at: R.addDays(TODAY, -2) + ' 18:10' })
   ];
-  approveInto(st, st.bookings[4], 'Amanda');
+  st.bookings.filter(b => b.status === 'Approved').forEach(b => approveInto(st, b, 'Amanda'));
   st.log = [
     { when: R.addDays(TODAY, -1) + ' 16:42', who: 'Amanda', what: 'Added', item: 'Quiz night', date: d(2) },
     { when: R.addDays(TODAY, -1) + ' 09:20', who: 'Sarah', what: 'Edited', item: '40th birthday party', date: d(3) }
@@ -75,7 +80,15 @@ function approveInto(st, b, who) {
 const usesRoom = e => e.cat === 'room' || e.room;
 const usesOn = (st, date) => st.events.filter(e => e.date === date && usesRoom(e)).map(e => ({ date, sess: R.sessionOf(e.allDay ? '' : e.start, e.end), title: e.cat === 'room' ? 'a booking' : e.title }));
 const free = (st, date, sess) => !usesOn(st, date).some(u => R.clash(u.sess, sess));
-function mail(st, to, subject, lines) { st.outbox.unshift({ when: nowText(), to, subject, body: lines.filter(Boolean).join('\n\n') }); st.outbox = st.outbox.slice(0, 30); }
+function mail(st, to, subject, lines, what, date) {
+  if (FLAGS.get('mailfail') === '1') {
+    st.attention.unshift({ when: nowText(), item: 'Email not sent: ' + what, date });
+    addLog(st, 'Diary', 'Needs attention', 'Email not sent: ' + what, date);
+    return false;
+  }
+  st.outbox.unshift({ when: nowText(), to, subject, body: lines.filter(Boolean).join('\n\n') }); st.outbox = st.outbox.slice(0, 30);
+  return true;
+}
 const details = b => ['Date: ' + R.niceDate(b.date), 'Session: ' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time, 'Type of event: ' + b.type, 'Guests: ' + b.guests, 'Reference: ' + b.id].join('\n');
 function addLog(st, who, what, item, date) { st.log.unshift({ when: nowText(), who, what, item, date }); }
 const copy = o => JSON.parse(JSON.stringify(o));
@@ -110,6 +123,11 @@ function run(st, action, p, who) {
       if (!x.start || !x.end) fail('Add a start and finish time.');
       const rec = { date: x.date, start: x.start, end: x.end, allDay: false, title: x.title.trim().slice(0, 100), cat: x.cat, src: '', status: 'confirmed',
         notes: String(x.notes || '').slice(0, 1000), pub: x.cat === 'room' ? true : !!x.pub, room: x.cat === 'room' || !!x.room, by: who, bk: '' };
+      if (rec.room) {
+        const mine = R.sessionOf(rec.start, rec.end);
+        const hit = st.events.find(e => e.bk && e.date === rec.date && e.id !== x.id && R.clash(R.sessionOf(e.start, e.end), mine));
+        if (hit) fail('A customer has booked the function room that ' + R.SESSIONS[R.sessionOf(hit.start, hit.end)].label.toLowerCase() + ' (' + hit.bk + '). Untick "Uses the function room", or cancel that booking first.');
+      }
       if (x.id) {
         const cur = st.events.find(e => e.id === x.id);
         if (!cur) fail('Someone else has deleted this item.');
@@ -140,13 +158,14 @@ function run(st, action, p, who) {
       const roomTaken = {};
       Object.keys(taken).sort().forEach(d => { roomTaken[d] = ['aft', 'eve'].filter(s => taken[d][s]); });
       return { ok: true, events, roomTaken, rules: { today: TODAY, capacity: 75, termsUrl: '', minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS,
-        shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES } };
+        shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES, privacyContact: '' } };
     }
     case 'request': {
       if (String(p.website || '').trim() || !(Number(p.elapsed) >= 3000)) return { ok: true, ref: '' };
       const dev = String(p.deviceId || 'unknown');
       st.sent[dev] = st.sent[dev] || 0;
       if (st.sent[dev] >= 3) fail("You've sent several requests already. The committee will be in touch.");
+      if (FLAGS.get('quota') === 'low') fail("We can't take online requests right now. Please ring the club.");
       const r = R.validate(p, TODAY, 75);
       if (!free(st, r.date, r.sess)) fail('Sorry, the function room is already booked that ' + R.SESSIONS[r.sess].label.toLowerCase() + '. Please choose another date or session.');
       if (st.bookings.filter(x => x.status === 'Pending' && x.date >= TODAY && x.email.toLowerCase() === r.email.toLowerCase()).length >= 2) {
@@ -157,20 +176,22 @@ function run(st, action, p, who) {
         type: r.type, guests: String(r.guests), name: r.name, email: r.email, phone: r.phone, message: r.message, by: '', at: '', cal: '', bar: '', reason: '' };
       st.bookings.push(b);
       st.sent[dev]++;
-      mail(st, b.email, 'Your function room request (' + b.id + ')', ['Hello ' + b.name + ',',
+      const sent = mail(st, b.email, 'Your function room request (' + b.id + ')', ['Hello,',
         'Thank you for asking to hire the function room at Elsecar Sports & Social Club.',
         'This is a request, not a confirmed booking. The committee will look at it and be in touch. Please do not make firm plans until you hear from us.',
-        details(b), 'Elsecar Sports & Social Club']);
+        ['Date: ' + R.niceDate(b.date), 'Session: ' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time, 'Reference: ' + b.id].join('\n'),
+        'If you did not send this request, you can ignore this email.', 'Elsecar Sports & Social Club'], 'Acknowledgement to customer (' + b.id + ')', b.date);
       mail(st, 'every committee address in Settings', 'Function room request: ' + R.niceDate(b.date) + ', ' + R.SESSIONS[b.sess].label.toLowerCase() + ' (' + b.id + ')', [
         'A new function room request has come in from the website.', details(b), rival ? 'Clash: Another request is already waiting for this session.' : '',
-        'Sign in to the club diary to see the contact details, then approve or decline it.', 'It is not a booking until a committee member approves it.']);
-      return { ok: true, ref: b.id, emailed: true };
+        'Sign in to the club diary to see the contact details, then approve or decline it.', 'It is not a booking until a committee member approves it.'], 'Committee alert (' + b.id + ')', b.date);
+      return { ok: true, ref: b.id, emailed: sent };
     }
 
     /* ---- committee: bookings ---- */
     case 'bookings': {
       const rows = st.bookings.filter(x => x.date >= TODAY);
       const pending = rows.filter(x => x.status === 'Pending').sort((a, b) => (a.date + a.sess).localeCompare(b.date + b.sess));
+      const past = st.bookings.filter(x => x.status === 'Pending' && x.date < TODAY).map(x => Object.assign({}, x, { past: true, clash: '' }));
       const pend = pending.map(x => {
         const notes = usesOn(st, x.date).filter(u => R.clash(u.sess, x.sess)).map(u => 'The room is already in use that day: ' + u.title + ' (' + R.SESSIONS[u.sess].label.toLowerCase() + ').');
         const others = pending.filter(o => o.id !== x.id && o.date === x.date && R.clash(o.sess, x.sess));
@@ -178,7 +199,7 @@ function run(st, action, p, who) {
         else if (others.length > 1) notes.push(others.length + ' other requests want this session too.');
         return Object.assign({}, x, { clash: notes.join(' ') });
       });
-      return { ok: true, pending: pend, upcoming: rows.filter(x => x.status === 'Approved').sort((a, b) => (a.date + a.sess).localeCompare(b.date + b.sess)),
+      return { ok: true, pending: past.concat(pend), attention: st.attention.slice(0, 10), upcoming: rows.filter(x => x.status === 'Approved').sort((a, b) => (a.date + a.sess).localeCompare(b.date + b.sess)),
         outbox: st.outbox.slice(0, 8) };
     }
     case 'approve': {
@@ -190,11 +211,11 @@ function run(st, action, p, who) {
       approveInto(st, b, who);
       Object.assign(b, { status: 'Approved', by: who, at: nowText() });
       addLog(st, who, 'Approved booking', b.type + ' (' + b.id + ')', b.date);
-      mail(st, b.email, 'Your function room booking is confirmed (' + b.id + ')', ['Hello ' + b.name + ',',
+      const sent = mail(st, b.email, 'Your function room booking is confirmed (' + b.id + ')', ['Hello ' + b.name + ',',
         'Good news. Your function room booking at Elsecar Sports & Social Club is confirmed.', details(b),
         'The club will send you the hire terms before your event.', 'If you need to change or cancel, please tell us as soon as you can by replying to this email.',
-        'Elsecar Sports & Social Club']);
-      return { ok: true, emailed: true };
+        'Elsecar Sports & Social Club'], 'Confirmation to customer (' + b.id + ')', b.date);
+      return { ok: true, emailed: sent };
     }
     case 'decline': {
       const b = findBk(st, p.id);
@@ -202,10 +223,10 @@ function run(st, action, p, who) {
       const why = R.clean(p.reason, 500, true);
       Object.assign(b, { status: 'Declined', by: who, at: nowText(), reason: why });
       addLog(st, who, 'Declined request', b.type + ' (' + b.id + ')', b.date);
-      mail(st, b.email, 'Your function room request (' + b.id + ')', ['Hello ' + b.name + ',',
+      const sent = mail(st, b.email, 'Your function room request (' + b.id + ')', ['Hello ' + b.name + ',',
         'Thank you for your request. Sorry, the club cannot take your booking for the function room on ' + R.niceDate(b.date) + ' (' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time + ').',
-        why ? 'The committee said: ' + why : '', 'You are welcome to send a request for another date.', 'Elsecar Sports & Social Club']);
-      return { ok: true, emailed: true };
+        why ? 'The committee said: ' + why : '', 'You are welcome to send a request for another date.', 'Elsecar Sports & Social Club'], 'Decline to customer (' + b.id + ')', b.date);
+      return { ok: true, emailed: sent };
     }
     case 'cancel': {
       const why = R.clean(p.reason, 500, true);
@@ -215,10 +236,10 @@ function run(st, action, p, who) {
       st.events = st.events.filter(e => e.id !== b.cal && e.id !== b.bar);
       Object.assign(b, { status: 'Cancelled', by: who, at: nowText(), reason: why });
       addLog(st, who, 'Cancelled booking', b.type + ' (' + b.id + ')', b.date);
-      mail(st, b.email, 'Your function room booking has been cancelled (' + b.id + ')', ['Hello ' + b.name + ',',
+      const sent = mail(st, b.email, 'Your function room booking has been cancelled (' + b.id + ')', ['Hello ' + b.name + ',',
         'Sorry, the club has had to cancel your function room booking on ' + R.niceDate(b.date) + ' (' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time + ').',
-        'Reason: ' + why, 'We are sorry for the trouble this causes. Please reply to this email if you have any questions.', 'Elsecar Sports & Social Club']);
-      return { ok: true, emailed: true };
+        'Reason: ' + why, 'We are sorry for the trouble this causes. Please reply to this email if you have any questions.', 'Elsecar Sports & Social Club'], 'Cancellation to customer (' + b.id + ')', b.date);
+      return { ok: true, emailed: sent };
     }
   }
   fail('Unknown action.');
