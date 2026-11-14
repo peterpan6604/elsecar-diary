@@ -84,3 +84,7 @@ footer a{color:var(--muted)}
 .terms th{background:var(--sunk)}
 .terms .questions{margin-top:22px}
 .terms footer .wrap{padding-block:16px}
+/* the request form sits in a narrow column on the club website, so stack the choices by the form's own width */
+form.fgrid{container-type:inline-size}
+@container (max-width:460px){.sessopts:not(.rooms){grid-template-columns:1fr}.sessopts:not(.rooms) .sopt b,.sessopts:not(.rooms) .sopt span span{display:inline}.sessopts:not(.rooms) .sopt span span{margin-left:6px}}
+@container (max-width:300px){.sessopts.rooms{grid-template-columns:1fr}}
