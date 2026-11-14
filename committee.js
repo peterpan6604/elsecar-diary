@@ -426,8 +426,10 @@ function bookingAction(b, kind) {
     reasonLabel.textContent = who === 'hirer' ? 'Note for the customer (optional). It goes in the email.' : C.label;
     reason.placeholder = who === 'hirer' ? '' : 'e.g. The room is needed for essential repairs.';
     setErr(err, '');
-    const due = who === 'club' ? RR.PRICE : who === 'hirer' && /^\d{4}-\d{2}-\d{2}$/.test(asked.value) ? RR.refundDue(asked.value, b.date) : null;
-    refundNote.hidden = due === null;
+    const badDate = who === 'hirer' ? RR.askedDateError(asked.value, b.date, b.received, TODAY) : '';
+    const due = who === 'club' ? RR.PRICE : who === 'hirer' && !badDate ? RR.refundDue(asked.value, b.date) : null;
+    refundNote.hidden = due === null && !badDate;
+    if (badDate) refundNote.textContent = badDate;
     if (due !== null) refundNote.textContent = due ? 'If they have paid, refund £' + due + ' in Stripe.' + (who === 'club' ? ' The club cancelling means a full refund.' : '') : 'No refund is due (less than 14 days before the event).';
   }
   const whoField = kind === 'cancel' ? h('fieldset', { class: 'f' }, h('legend', null, 'Who is cancelling?'),
@@ -439,6 +441,8 @@ function bookingAction(b, kind) {
     const why = reason ? reason.value.trim() : '';
     if (kind === 'cancel' && !who) return setErr(err, 'Choose who is cancelling.');
     if (C.required && who !== 'hirer' && why.length < 3) return setErr(err, 'Add a reason. It goes in the email to the customer.');
+    const badDate = kind === 'cancel' && who === 'hirer' ? RR.askedDateError(asked.value, b.date, b.received, TODAY) : '';
+    if (badDate) return setErr(err, badDate);
     setErr(err, ''); go.disabled = true; back.disabled = true; go.textContent = C.busy;
     try {
       const r = await api(kind, Object.assign({ id: b.id, reason: why }, kind === 'cancel' ? { who, asked: who === 'hirer' ? asked.value : '' } : {}));

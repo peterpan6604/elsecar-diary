@@ -158,9 +158,21 @@ function refundDue(asked, eventDate) {
   const days = daysBetween(asked, eventDate);
   return days >= REFUND_EARLY_DAYS ? REFUND_EARLY : days >= REFUND_LATE_DAYS ? REFUND_LATE : 0;
 }
+const daysText = n => n + (n === 1 ? ' day' : ' days');
+/** Same as askedDateError_ in Code.gs: '' if the date the customer asked to cancel is believable, or a message. */
+function askedDateError(asked, eventDate, received, today) {
+  if (!isRealDate(asked)) return 'Add the date the customer asked to cancel.';
+  if (asked > today) return 'The date the customer asked to cancel cannot be in the future.';
+  if (isRealDate(eventDate) && asked > eventDate) return 'The date the customer asked to cancel cannot be after the event.';
+  const sent = String(received || '').slice(0, 10);
+  if (isRealDate(sent)) {
+    if (asked < sent) return 'The date the customer asked to cancel cannot be before they sent their request (' + niceDate(sent) + ').';
+  } else if (asked < addMonths(today, -13)) return 'The date the customer asked to cancel is too long ago. Check the date.';
+  return '';
+}
 function hirerRefundText(asked, eventDate) {
   const due = refundDue(asked, eventDate);
-  const when = 'You asked us to cancel on ' + niceDate(asked) + ', ' + daysBetween(asked, eventDate) + ' days before your event. ';
+  const when = 'You asked us to cancel on ' + niceDate(asked) + ', ' + daysText(daysBetween(asked, eventDate)) + ' before your event. ';
   if (due === REFUND_EARLY) return when + 'If you have paid the ' + money(PRICE) + ' hire fee, we will refund ' + money(due) +
     ' (the fee minus a ' + money(PRICE - due) + ' admin fee). ' + REFUND_TIME_TEXT;
   if (due) return when + 'If you have paid the ' + money(PRICE) + ' hire fee, we will refund ' + money(due) + '. ' + REFUND_TIME_TEXT;
@@ -169,5 +181,5 @@ function hirerRefundText(asked, eventDate) {
 
 window.DiaryRules = { ROOMS, DEFAULT_ROOM, roomName, roomsOf, roomsForSave, SESSIONS, TYPES, SHORT_NOTICE_TYPE, MIN_NOTICE, MAX_MONTHS, MAX_GUESTS,
   validate, sessionOf, clash, canAsk, addDays, addMonths, daysBetween, niceDate, isEmail, clean,
-  PRICE, PAY_WITHIN_DAYS, REQUEST_PRICE_TEXT, CANCEL_TERMS_TEXT, CLUB_REFUND_TEXT, payBy, paymentUrl, paymentText, refundDue, hirerRefundText };
+  PRICE, PAY_WITHIN_DAYS, REQUEST_PRICE_TEXT, CANCEL_TERMS_TEXT, CLUB_REFUND_TEXT, payBy, paymentUrl, paymentText, refundDue, hirerRefundText, askedDateError, daysText };
 })();

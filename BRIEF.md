@@ -53,7 +53,7 @@ Pete decided on 14 Nov 2026. Lean on purpose: **no Stripe API, no keys, no webho
   - 14 to 28 days: **£25** back
   - 13 days or fewer ("less than 14 days"): no refund
 - **Club cancels** through no fault of the hirer: **full refund**.
-- Refunds are done **by hand in Stripe** by the committee. On **Cancel booking** the committee choose "The club" or "The customer asked to cancel" (with the date they asked). The diary works out the refund, puts it in the email to the customer, shows it to the committee and writes it in the Reason column.
+- Refunds are done **by hand in Stripe** by the committee. On **Cancel booking** the committee choose "The club" or "The customer asked to cancel" (with the date they asked). The diary works out the refund, puts it in the email to the customer, shows it to the committee and writes it in the Reason column. The server refuses a cancel that doesn't say who is cancelling (an old cached committee page), so nobody is promised a full refund by mistake. The date asked can't be in the future, after the event, or before the request was sent.
 - Bookings approved before this change got the old email with no payment link. The club deals with those by hand.
 
 ## Capacities (changed 14 Nov 2026)

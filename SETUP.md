@@ -126,18 +126,21 @@ Do this **after** Pete has said payments can go live. About 30 minutes. Do the s
 3. Choose **Products or subscriptions**, then **+ Add a new product**:
    - Name: **Room hire, Elsecar Sports & Social Club**
    - Description: **Hire of the function room or tea room. Fee for one booking.**
-   - Price: **£50.00**, **GBP**, **One off** (not recurring).
+   - Price: a **fixed price** of **£50.00**, **GBP**, **One off** (not recurring). Do not choose "customers choose what to pay".
 4. Leave **Let customers adjust quantity** switched **off**, so it is always one booking at £50.
 5. Under **Options** (or **Advanced options**):
+   - **Collect customers' names**: **on**, so you can see who paid.
+   - **Require customers to provide a phone number**: optional. Off is fine, because the club already has it from the request.
+   - **Allow promotion codes**: **off**.
    - **Collect customers' addresses**: off.
-   - **Require customers to provide a phone number**: off. The club already has it from the request.
-   - **Allow promotion codes**: off.
    - **Add custom fields**: none. The booking reference is added to each customer's link by the diary.
    - **Limit the number of payments**: off.
-   - Stripe always asks for an email address and the name on the card. That is enough.
+   - Stripe always asks for an email address.
 6. Under **After payment**, choose **Show confirmation page** and add this message: `Thank you. Your room hire fee for Elsecar Sports & Social Club is paid. Keep your receipt email.`
 7. Click **Create link**. Copy the link. It looks like `https://buy.stripe.com/` followed by letters and numbers.
 8. Stripe **Settings** → **Customer emails**: switch on **Successful payments** so every customer gets a receipt. Switch on **Refunds** too, so they are told when a refund is made.
+9. Stripe **Settings** → **Public details** (business details): set the **support email** to the same address as **Reply-to email** in the diary's Settings tab, so customers who reply to a Stripe receipt reach the club.
+10. Keep the link out of GitHub, chats and the website. It goes only in the Settings tab. It is not a secret (customers see it), but anyone with it could pay against a made up reference, which is why the committee always check the reference **and** the email (see COMMITTEE-GUIDE.md, section 8).
 
 ### B. The Apps Script (signed in as the club account)
 
@@ -156,7 +159,8 @@ Do this **after** Pete has said payments can go live. About 30 minutes. Do the s
 1. Only now publish the new pages (merge the `payments` branch into `main` and push). GitHub Pages takes about 10 minutes. Then hard refresh (Ctrl+F5, or close and reopen the tab on a phone).
 2. Open `https://peterpan6604.github.io/elsecar-diary/hire-terms.html`. Check it loads on your phone. Anything still to be confirmed shows in amber.
 3. Paste that address into **Hire terms link** in the **Settings** tab. It then shows on the request form and in every confirmation email.
-4. Ask the committee to reopen the diary on their phones, so they get the new **Cancel booking** box.
+4. Ask the committee to reopen the diary on their phones, so they get the new **Cancel booking** box. Until they do, Cancel booking on an old copy of the page says "Please refresh the committee page and try again." Nothing is cancelled.
+5. Look at **Needs approval** for **tea room** requests for **51 to 75 guests** (sent before the limit changed). They can no longer be approved. Contact those customers: offer the function room, or ask them to cut their numbers (then change Guests in the Bookings tab and approve), or decline.
 
 ### D. Test it
 

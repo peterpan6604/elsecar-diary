@@ -610,20 +610,26 @@ function declineBooking_(id, reason, user) {
   return { ok: true, emailed: sent };
 }
 
-/** who: 'hirer' when the customer asked to cancel (asked is the date they asked, which sets the refund).
- *  Anything else is the club cancelling (a full refund if they paid). A committee page from before payments sends neither. */
+/** who must be 'club' (a full refund if they paid) or 'hirer' (the customer asked; asked is the date they asked,
+ *  which sets the refund). Anything else is refused: a committee page saved before payments sends no who, and
+ *  guessing "the club" would promise the customer a full refund by mistake. */
 function cancelBooking_(id, reason, user, who, asked) {
+  if (who !== 'club' && who !== 'hirer') fail_(REFRESH_PAGE_MSG);
   const why = cleanStr_(reason, 500, true);
   const byHirer = who === 'hirer';
   const askedOn = byHirer ? String(asked || '') : '';
-  if (byHirer) {
-    if (!isRealDate_(askedOn)) fail_('Add the date the customer asked to cancel.');
-    if (askedOn > todayIso_()) fail_('The date the customer asked to cancel cannot be in the future.');
-  } else if (why.length < 3) fail_('Add a reason. It goes in the email to the customer.');
-  // The Reason cell records who cancelled and the refund due, so whoever does the refund in Stripe can check it
-  const change = b => ({ status: 'Cancelled', reason: byHirer
+  if (!byHirer && why.length < 3) fail_('Add a reason. It goes in the email to the customer.');
+  if (byHirer && !isRealDate_(askedOn)) fail_('Add the date the customer asked to cancel.');
+  const today = todayIso_();
+  // Runs inside the lock, with the booking just read, before anything is removed. The Reason cell records who
+  // cancelled and the refund due, so whoever does the refund in Stripe can check it.
+  const change = b => {
+    const bad = byHirer ? askedDateError_(askedOn, b.date, b.received, today) : '';
+    if (bad) fail_(bad);
+    return { status: 'Cancelled', reason: byHirer
     ? 'Customer asked on ' + askedOn + '. Refund due if paid: ' + money_(refundDue_(askedOn, b.date)) + (why ? '. ' + why : '')
-    : 'Cancelled by the club. Full refund if paid. ' + why });
+    : 'Cancelled by the club. Full refund if paid. ' + why };
+  };
   const b = decide_(id, 'Approved', change, user, byHirer ? 'Cancelled booking (customer asked)' : 'Cancelled booking', true, true);
   const lines = byHirer ? hirerCancelLines_(b, why, askedOn) : clubCancelLines_(b, why);
   const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking has been cancelled (' + b.id + ')', lines,
@@ -631,8 +637,11 @@ function cancelBooking_(id, reason, user, who, asked) {
   return { ok: true, emailed: sent, refund: byHirer ? refundDue_(askedOn, b.date) : HIRE_PRICE };
 }
 
+const REFRESH_PAGE_MSG = 'Please refresh the committee page and try again.';
+
 /** Shared by decline and cancel: checks the status, removes calendar events if asked, updates the row.
- *  needsRoom: refuse if the Room cell is not recognised (cancel names the room in its email). */
+ *  needsRoom: refuse if the Room cell is not recognised (cancel names the room in its email).
+ *  change can be a function of the booking. It runs before anything is removed, so it can still refuse. */
 function decide_(id, mustBe, change, user, logWhat, removeEvents, needsRoom) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -640,6 +649,7 @@ function decide_(id, mustBe, change, user, logWhat, removeEvents, needsRoom) {
     const b = findBooking_(bookingRows_(), id);
     if (b.status !== mustBe) fail_('This ' + (mustBe === 'Pending' ? 'request' : 'booking') + ' is already ' + b.status.toLowerCase() + '.');
     if (needsRoom && !ROOMS[b.room]) fail_(ROOM_UNKNOWN_MSG);
+    const vals = typeof change === 'function' ? change(b) : change;
     if (removeEvents) {
       [b.cal, b.bar].forEach(evId => {
         if (!evId) return;
@@ -647,7 +657,7 @@ function decide_(id, mustBe, change, user, logWhat, removeEvents, needsRoom) {
       });
       bumpCache_();
     }
-    updateBooking_(b, Object.assign({ by: user.name, at: nowText_() }, typeof change === 'function' ? change(b) : change));
+    updateBooking_(b, Object.assign({ by: user.name, at: nowText_() }, vals));
     log_(user.name, logWhat, b.type + ' (' + b.id + ')', b.date);
     return b;
   } finally {
@@ -944,10 +954,27 @@ function refundDue_(asked, eventDate) {
   return days >= REFUND_EARLY_DAYS ? REFUND_EARLY : days >= REFUND_LATE_DAYS ? REFUND_LATE : 0;
 }
 
+/** "1 day", "29 days". */
+function daysText_(n) { return n + (n === 1 ? ' day' : ' days'); }
+
+/** Is the date the customer asked to cancel believable? '' if so, or a plain message. Not in the future, not after
+ *  the event, and not before they sent the request (Received). If Received is blank or unreadable, not more than
+ *  13 months ago (requests are taken up to 12 months ahead). */
+function askedDateError_(asked, eventDate, received, today) {
+  if (!isRealDate_(asked)) return 'Add the date the customer asked to cancel.';
+  if (asked > today) return 'The date the customer asked to cancel cannot be in the future.';
+  if (isRealDate_(eventDate) && asked > eventDate) return 'The date the customer asked to cancel cannot be after the event.';
+  const sent = String(received || '').slice(0, 10);
+  if (isRealDate_(sent)) {
+    if (asked < sent) return 'The date the customer asked to cancel cannot be before they sent their request (' + niceDate_(sent) + ').';
+  } else if (asked < addMonthsIso_(today, -13)) return 'The date the customer asked to cancel is too long ago. Check the date.';
+  return '';
+}
+
 /** What the hirer is told about their refund. */
 function hirerRefundText_(asked, eventDate) {
   const due = refundDue_(asked, eventDate);
-  const when = 'You asked us to cancel on ' + niceDate_(asked) + ', ' + daysBetween_(asked, eventDate) + ' days before your event. ';
+  const when = 'You asked us to cancel on ' + niceDate_(asked) + ', ' + daysText_(daysBetween_(asked, eventDate)) + ' before your event. ';
   if (due === REFUND_EARLY) return when + 'If you have paid the ' + money_(HIRE_PRICE) + ' hire fee, we will refund ' + money_(due) +
     ' (the fee minus a ' + money_(HIRE_PRICE - due) + ' admin fee). ' + REFUND_TIME_TEXT;
   if (due) return when + 'If you have paid the ' + money_(HIRE_PRICE) + ' hire fee, we will refund ' + money_(due) + '. ' + REFUND_TIME_TEXT;

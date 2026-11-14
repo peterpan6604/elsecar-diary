@@ -253,6 +253,31 @@ ok(/Reason: Essential repairs/.test(club), 'club cancellation gives the reason')
 const hirer = G.hirerCancelLines_(bk, '', '2026-11-21').join('\n\n');
 ok(/As you asked/.test(hirer) && /£25/.test(hirer) && !/The committee said/.test(hirer), 'hirer cancellation email, no note');
 
+/* cancelling: who must be stated, so an old cached committee page cannot promise a full refund by mistake */
+const U = { name: 'Tester' };
+throws(() => G.cancelBooking_('ECC-AAAAAA', 'Essential repairs', U), /refresh the committee page/, 'no who (an old committee page) is refused');
+throws(() => G.cancelBooking_('ECC-AAAAAA', 'Essential repairs', U, 'Club'), /refresh the committee page/, 'who must be exactly club');
+throws(() => G.cancelBooking_('ECC-AAAAAA', 'Essential repairs', U, 'customer'), /refresh the committee page/, 'an unknown who is refused');
+throws(() => G.cancelBooking_('ECC-AAAAAA', '', U, 'club'), /Add a reason/, 'the club must give a reason');
+throws(() => G.cancelBooking_('ECC-AAAAAA', '', U, 'hirer', 'yesterday'), /Add the date/, 'the customer route needs a real date');
+
+/* the date the customer asked to cancel */
+const ad = (asked, received) => G.askedDateError_(asked, EV, received, '2026-11-14');
+eq(ad('2026-11-14', '2026-10-01 10:00'), '', 'asked today is fine');
+eq(ad('2026-10-01', '2026-10-01 10:00'), '', 'asked the same day they sent the request is fine');
+ok(/before they sent their request \(Wednesday 30 September 2026\)/.test(ad('2026-09-29', '2026-09-30 10:00')), 'asked before the request was sent is refused');
+ok(/in the future/.test(ad('2026-11-15', '2026-10-01 10:00')), 'a future date is refused');
+ok(/after the event/.test(G.askedDateError_('2026-11-14', '2026-11-10', '2026-10-01 10:00', '2026-11-20')), 'a date after the event is refused');
+eq(ad('2025-10-14', ''), '', 'no Received date: 13 months ago is still allowed');
+ok(/too long ago/.test(ad('2025-10-13', '')), 'no Received date: more than 13 months ago is refused');
+ok(/too long ago/.test(ad('2025-01-01', 'rubbish')), 'unreadable Received date: falls back to 13 months');
+ok(/Add the date/.test(ad('', '2026-10-01 10:00')), 'a blank date is refused');
+
+/* "1 day", never "1 days" */
+ok(/, 1 day before your event\./.test(G.hirerRefundText_('2026-12-18', EV)), 'one day before says "1 day"');
+ok(/, 2 days before your event\./.test(G.hirerRefundText_('2026-12-17', EV)), 'two days before says "2 days"');
+ok(/, 0 days before your event\./.test(G.hirerRefundText_(EV, EV)), 'on the day says "0 days"');
+
 /* the request acknowledgement and the form mention the fee (the email holds only the club's own words) */
 const B0 = (() => { const c = vm.createContext({ window: {} }); vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'rules.js'), 'utf8'), c); return c.window.DiaryRules; })();
 ok(/£50/.test(B0.REQUEST_PRICE_TEXT) && /do not pay anything now/.test(B0.REQUEST_PRICE_TEXT), 'request wording: £50, nothing to pay now');
@@ -338,6 +363,9 @@ eq([B.ROOMS.fn.max, B.ROOMS.tea.max], [80, 50], 'browser knows the fire limits 8
   eq(B.refundDue(a, EV), G.refundDue_(a, EV), 'browser and server agree on refund for ' + a);
   eq(B.hirerRefundText(a, EV), G.hirerRefundText_(a, EV), 'browser and server agree on refund wording for ' + a);
 });
+['', 'x', '2025-01-01', '2025-10-13', '2025-10-14', '2026-09-29', '2026-10-01', '2026-11-14', '2026-11-15', '2026-12-18'].forEach(a =>
+  ['', 'rubbish', '2026-10-01 10:00', '2026-09-30'].forEach(rc => ['2026-12-19', '2026-11-10'].forEach(ev =>
+    eq(B.askedDateError(a, ev, rc, '2026-11-14'), G.askedDateError_(a, ev, rc, '2026-11-14'), 'browser and server agree on asked date ' + [a, rc, ev].join(' | ')))));
 ok(G.confirmationLines_(bk, '', '', '2026-11-14').indexOf(B.CANCEL_TERMS_TEXT) >= 0, 'browser and server have the same cancellation summary');
 ok(G.clubCancelLines_(bk, 'x').indexOf(B.CLUB_REFUND_TEXT) >= 0, 'browser and server have the same club refund wording');
 ok(codeText.indexOf("const REQUEST_PRICE_TEXT = 'The hire fee is ' + money_(HIRE_PRICE) + '. You do not pay anything now.") >= 0 &&

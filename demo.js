@@ -255,15 +255,15 @@ function run(st, action, p, who) {
       return { ok: true, emailed: sent };
     }
     case 'cancel': {
+      if (p.who !== 'club' && p.who !== 'hirer') fail('Please refresh the committee page and try again.');
       const why = R.clean(p.reason, 500, true);
       const byHirer = p.who === 'hirer';
       const asked = byHirer ? String(p.asked || '') : '';
-      if (byHirer) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(asked)) fail('Add the date the customer asked to cancel.');
-        if (asked > TODAY) fail('The date the customer asked to cancel cannot be in the future.');
-      } else if (why.length < 3) fail('Add a reason. It goes in the email to the customer.');
+      if (!byHirer && why.length < 3) fail('Add a reason. It goes in the email to the customer.');
       const b = findBk(st, p.id);
       if (b.status !== 'Approved') fail('This booking is already ' + b.status.toLowerCase() + '.');
+      const badDate = byHirer ? R.askedDateError(asked, b.date, b.received, TODAY) : '';
+      if (badDate) fail(badDate);
       st.events = st.events.filter(e => e.id !== b.cal && e.id !== b.bar);
       const refund = byHirer ? R.refundDue(asked, b.date) : R.PRICE;
       Object.assign(b, { status: 'Cancelled', by: who, at: nowText(), reason: byHirer ? 'Customer asked on ' + asked + '. Refund due if paid: £' + refund + (why ? '. ' + why : '') : 'Cancelled by the club. Full refund if paid. ' + why });

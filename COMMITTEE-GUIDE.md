@@ -80,7 +80,7 @@ When a request comes in, every committee member gets an email. It has the room, 
 
 * **Clash** in orange means another request, a booking, or a committee item wants the same room at the same time. Sort that out first. A request for the other room never clashes.
 * **View date** shows that day in the calendar.
-* **Approve** checks the room is still free and the guests fit (up to 80 in the function room, 50 in the tea room), adds "Private party (function room)" or "Private party (tea room)" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm, with a link to pay the £50 hire fee within 7 days. The public website then shows that session as booked for that room only. The public only ever see "Private party".
+* **Approve** checks the room is still free and the guests fit (up to 80 in the function room, 50 in the tea room). Tea room requests for 51 to 75 guests sent before 14 November 2026 can't be approved: contact the customer to offer the function room or fewer guests (then change Guests in the Bookings tab), or decline. Approve then adds "Private party (function room)" or "Private party (tea room)" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm, with a link to pay the £50 hire fee within 7 days. The public website then shows that session as booked for that room only. The public only ever see "Private party".
 * **Decline** emails the customer to say the club can't take it. You can add a reason. It goes in the email, so keep it polite.
 * **Date passed** means nobody replied before the date. Only Decline is offered, so the customer still gets an answer.
 * A red **Needs attention: emails not sent** box means an email didn't go. Phone or email that customer yourself.
@@ -91,7 +91,8 @@ A request does not block the date on the website. Two people can ask for the sam
 
 * **Cancel booking** asks **who is cancelling**, then emails the customer and removes the booking and its bar cover reminder from the diary.
   * **The club**: add a reason. The email says they get a full refund if they have paid.
-  * **The customer asked to cancel**: put in the date they asked (it sets the refund). A note is optional. The diary shows you the refund to make, and the email tells the customer.
+  * **The customer asked to cancel**: put in the date they asked (it sets the refund). It can't be in the future, after the event, or before they sent their request. A note is optional. The diary shows you the refund to make, and the email tells the customer.
+  * If the diary says "Please refresh the committee page and try again", your phone has an old copy of the page. Close it and open it again.
   * Then do the refund yourself in Stripe (see "Payments and refunds" below). The diary does not touch Stripe.
 * You can't edit or delete an online booking from the calendar itself. Use Cancel booking so the customer is told.
 * If you add an item and tick "Uses the function room" or "Uses the tea room" for a session a customer has booked in that room, the diary refuses it. Untick the box, or cancel the booking first. A morning item (finishing by 12 noon) doesn't clash with anything.
@@ -103,7 +104,9 @@ Every booking costs **£50**, whichever room and session. Nobody pays when they 
 **Check who has paid** (signed in to the club's Stripe account, on the website or the Stripe app):
 1. Go to **Payments**.
 2. Search for the customer's **email address** (the one on the booking card).
-3. Open the payment. The checkout details should show a **Client reference ID** that matches the booking reference (ECC-...). If a customer paid with a different email, search for their name or the amount and date instead, and check the reference.
+3. Open the payment. The checkout details should show a **Client reference ID** that matches the booking reference (ECC-...).
+4. Only count the booking as paid when **both** the reference **and** the email match the booking card. Anyone who has the club's payment link could pay against a made up reference, so one on its own is not enough.
+5. If they match on one but not the other (for example someone paid with a different email), contact the customer and check before counting it as paid.
 
 If someone has not paid by their date, phone or email them first. If you decide to cancel, use **Cancel booking** and choose **The club**, with a reason such as "The hire fee was not paid." They have not paid, so there is nothing to refund.
 
