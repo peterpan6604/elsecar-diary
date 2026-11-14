@@ -5,9 +5,10 @@
 (function () {
 'use strict';
 
+// max is each room's fire limit (14 Nov 2026). The Settings tab can lower it, never raise it.
 const ROOMS = {
-  fn:  { label: 'Function room' },
-  tea: { label: 'Tea room' }
+  fn:  { label: 'Function room', max: 80 },
+  tea: { label: 'Tea room',      max: 50 }
 };
 const DEFAULT_ROOM = 'fn';
 const roomName = k => (ROOMS[k] || ROOMS[DEFAULT_ROOM]).label.toLowerCase();
@@ -19,7 +20,10 @@ const SESSIONS = {
 const TYPES = ['Birthday party', '18th birthday', '21st birthday', 'Wedding or engagement', 'Christening',
   'Funeral wake', 'Anniversary', 'Meeting or class', 'Other'];
 const SHORT_NOTICE_TYPE = 'Funeral wake';
-const MIN_NOTICE = 7, MAX_MONTHS = 12, MAX_GUESTS = 75;
+const MIN_NOTICE = 7, MAX_MONTHS = 12, MAX_GUESTS = 80; // MAX_GUESTS: the biggest room
+/* Payment and refunds (14 Nov 2026). Same as Code.gs, HIRE-TERMS.md and hire-terms.html. */
+const PRICE = 50, PAY_WITHIN_DAYS = 7, REFUND_EARLY = 40, REFUND_LATE = 25, REFUND_EARLY_DAYS = 29, REFUND_LATE_DAYS = 14;
+const PAYMENT_LINK_RE = /^https:\/\/buy\.stripe\.com\/[A-Za-z0-9]+$/;
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -49,7 +53,7 @@ function niceDate(s) { const t = new Date(utcOf(s)); return DAYS[t.getUTCDay()] 
 const isEmail = s => /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[A-Za-z]{2,}$/.test(String(s || '')) && String(s).length <= 120;
 
 /** Same checks, same order and same messages as validateRequest_ in Code.gs.
-    capacity is one number for every room, or { fn: 75, tea: 75 }. */
+    capacity is one number for every room, or { fn: 80, tea: 50 }. Either way it is capped at each room's fire limit. */
 function validate(b, today, capacity) {
   const name = clean(b.name, 80);
   if (name.length < 2) fail('Add your name.');
@@ -70,7 +74,8 @@ function validate(b, today, capacity) {
   const g = String(b.guests == null ? '' : b.guests).trim();
   const guests = /^\d{1,4}$/.test(g) ? Number(g) : 0;
   if (guests < 1) fail('Add roughly how many guests.');
-  const cap = typeof capacity === 'object' ? capacity[room] : capacity;
+  const given = typeof capacity === 'object' ? capacity[room] : capacity;
+  const cap = Math.min(Number(given) || ROOMS[room].max, ROOMS[room].max);
   if (guests > cap) fail('The ' + roomName(room) + ' holds up to ' + cap + ' people, including staff and entertainers.');
   const message = clean(b.message, 1000, true);
   const ahead = daysBetween(today, date);
@@ -120,6 +125,49 @@ function roomsForSave(x, old) {
   return { fn, tea };
 }
 
+/* ---- Payment and refunds: same answers and wording as Code.gs (checked by tests/test-rules.js) ---- */
+const money = n => '£' + n;
+const REQUEST_PRICE_TEXT = 'The hire fee is ' + money(PRICE) + '. You do not pay anything now. If the committee approve your booking, ' +
+  'we will email you a link to pay by card. Please pay within ' + PAY_WITHIN_DAYS + ' days of that email.';
+const CANCEL_TERMS_TEXT = 'If you need to cancel, reply to this email or contact the club as soon as you can. If you have paid, we refund ' +
+  money(REFUND_EARLY) + ' (the fee minus a ' + money(PRICE - REFUND_EARLY) + ' admin fee) if you cancel ' + REFUND_EARLY_DAYS +
+  ' days or more before your event, ' + money(REFUND_LATE) + ' if you cancel ' + REFUND_LATE_DAYS + ' to ' + (REFUND_EARLY_DAYS - 1) +
+  ' days before, and nothing if you cancel ' + (REFUND_LATE_DAYS - 1) + ' days or fewer before.';
+const REFUND_TIME_TEXT = 'Refunds go back to the card you paid with and usually take 5 to 10 working days to arrive.';
+const CLUB_REFUND_TEXT = 'If you have paid the ' + money(PRICE) + ' hire fee, we will refund it in full. ' + REFUND_TIME_TEXT;
+
+function payBy(today, eventDate) { const week = addDays(today, PAY_WITHIN_DAYS); return eventDate < week ? eventDate : week; }
+function paymentUrl(link, ref, email) {
+  if (!PAYMENT_LINK_RE.test(String(link || ''))) return '';
+  const id = String(ref || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
+  const q = [];
+  if (id) q.push('client_reference_id=' + encodeURIComponent(id));
+  if (isEmail(email)) q.push('prefilled_email=' + encodeURIComponent(email));
+  return link + (q.length ? '?' + q.join('&') : '');
+}
+function paymentText(link, ref, email, today, eventDate) {
+  const url = paymentUrl(link, ref, email);
+  if (!url) return 'The hire fee is ' + money(PRICE) + '. The club will be in touch about how to pay it.';
+  const by = payBy(today, eventDate);
+  return 'The hire fee is ' + money(PRICE) + '. Please pay it by ' + niceDate(by) + (by === eventDate ? ' (the day of your event)' : '') +
+    ' using this secure card payment link. The link carries your booking reference, so we can match your payment to your booking.\n' + url +
+    '\nIf the fee is not paid by then, the club may cancel the booking.';
+}
+/** Refund in pounds when the hirer cancels: 29 days or more before the event 40, 14 to 28 days 25, 13 or fewer nothing. */
+function refundDue(asked, eventDate) {
+  const days = daysBetween(asked, eventDate);
+  return days >= REFUND_EARLY_DAYS ? REFUND_EARLY : days >= REFUND_LATE_DAYS ? REFUND_LATE : 0;
+}
+function hirerRefundText(asked, eventDate) {
+  const due = refundDue(asked, eventDate);
+  const when = 'You asked us to cancel on ' + niceDate(asked) + ', ' + daysBetween(asked, eventDate) + ' days before your event. ';
+  if (due === REFUND_EARLY) return when + 'If you have paid the ' + money(PRICE) + ' hire fee, we will refund ' + money(due) +
+    ' (the fee minus a ' + money(PRICE - due) + ' admin fee). ' + REFUND_TIME_TEXT;
+  if (due) return when + 'If you have paid the ' + money(PRICE) + ' hire fee, we will refund ' + money(due) + '. ' + REFUND_TIME_TEXT;
+  return when + 'As that is less than ' + REFUND_LATE_DAYS + ' days before the event, the hire fee is not refunded.';
+}
+
 window.DiaryRules = { ROOMS, DEFAULT_ROOM, roomName, roomsOf, roomsForSave, SESSIONS, TYPES, SHORT_NOTICE_TYPE, MIN_NOTICE, MAX_MONTHS, MAX_GUESTS,
-  validate, sessionOf, clash, canAsk, addDays, addMonths, daysBetween, niceDate, isEmail, clean };
+  validate, sessionOf, clash, canAsk, addDays, addMonths, daysBetween, niceDate, isEmail, clean,
+  PRICE, PAY_WITHIN_DAYS, REQUEST_PRICE_TEXT, CANCEL_TERMS_TEXT, CLUB_REFUND_TEXT, payBy, paymentUrl, paymentText, refundDue, hirerRefundText };
 })();

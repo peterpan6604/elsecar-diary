@@ -3,12 +3,15 @@
  * Stage 1 (plus small stage 2 additions: room tick, phone calendar link): committee sign-in, diary read/add/edit/delete, change log, public read.
  * Stage 3: public function room booking requests, committee approve / decline / cancel, emails, monthly clean-up of contact details.
  * Tea room (14 Nov 2026): a second room, hired separately. Each room has its own free sessions, so both can be booked at once.
+ * Payments (14 Nov 2026): £50 a booking, paid by a Stripe Payment Link in the confirmation email. No Stripe keys or webhooks:
+ *   the link lives in the Settings tab ("Payment link") and the committee check payments in Stripe themselves.
+ *   Capacities: function room 80, tea room 50. Hirer cancellation refunds: see refundDue_().
  *
  * Runs on the elsecarsportsandsocialclub1854 Google account.
  * Private settings live in Project Settings → Script Properties:
  *   DIARY_CODE    the shared committee code (add by hand, 6+ characters)
  *   CALENDAR_ID, SHEET_ID, TOKEN_SECRET   filled in by setup()
- * After pasting a new version, run setupStage3() once from the editor (see SETUP.md).
+ * After pasting a new version, run setupStage3() and setupPayments() once from the editor (see SETUP.md).
  */
 
 const TZ = 'Europe/London';
@@ -23,9 +26,10 @@ const PUBLIC_CACHE_SECONDS = 300;
 /* Stage 3: room booking requests */
 // The rooms the public can hire. Each has its own availability. A booking or diary item with no room recorded
 // (everything made before the tea room was added) counts as the function room.
+// max is the fire limit for that room (Pete, 14 Nov 2026). The Settings tab can lower it, never raise it.
 const ROOMS = {
-  fn:  { label: 'Function room', setting: 'Room capacity' },
-  tea: { label: 'Tea room',      setting: 'Tea room capacity' }
+  fn:  { label: 'Function room', setting: 'Room capacity',     max: 80 },
+  tea: { label: 'Tea room',      setting: 'Tea room capacity', max: 50 }
 };
 const DEFAULT_ROOM = 'fn';
 const UNKNOWN_ROOM = 'unknown';   // a Room cell someone typed that matches neither room
@@ -40,7 +44,7 @@ const EVENT_TYPES = ['Birthday party', '18th birthday', '21st birthday', 'Weddin
 const SHORT_NOTICE_TYPE = 'Funeral wake';
 const MIN_NOTICE_DAYS = 7;
 const MAX_AHEAD_MONTHS = 12;
-const MAX_GUESTS = 75;            // fire limit for each room. The Settings tab can only lower it.
+const MAX_GUESTS = 80;            // the biggest room. Each room's own fire limit is ROOMS[room].max.
 const REQ_PER_DEVICE = 3;         // requests per device every 6 hours
 const REQ_CLUB_WIDE = 20;         // requests across the whole club every 6 hours
 const REQ_WINDOW_SECONDS = 21600; // 6 hours, the longest CacheService keeps anything
@@ -49,6 +53,16 @@ const KEEP_CONTACT_MONTHS = 6;
 const KEEP_DECLINED_DAYS = 30;    // contact details on a declined request go sooner
 const QUOTA_RESERVE = 30;         // emails kept back each day for approve, decline and cancel
 const ATTENTION = 'Needs attention';
+/* Payment (decided 14 Nov 2026). The same numbers are in rules.js, HIRE-TERMS.md and hire-terms.html. */
+const HIRE_PRICE = 50;            // pounds, every booking, any room, any session
+const PAY_WITHIN_DAYS = 7;        // after the confirmation email (or by the day of the event, if that is sooner)
+const REFUND_EARLY = 40;          // cancelled 29 or more days before the event: the £50 fee minus a £10 admin fee
+const REFUND_LATE = 25;           // cancelled 14 to 28 days before
+const REFUND_EARLY_DAYS = 29;     // "more than 28 days before"
+const REFUND_LATE_DAYS = 14;      // "from 28 to 14 days before". 13 days or fewer: no refund
+// Only a live Stripe Payment Link: https://buy.stripe.com/ then letters and numbers. Test mode links (test_...),
+// anything with a query string, and any other address are ignored, so a typo can never send customers elsewhere.
+const PAYMENT_LINK_RE = /^https:\/\/buy\.stripe\.com\/[A-Za-z0-9]+$/;
 const REMOVED = '(removed)';
 // Bookings tab columns. 1 to 15 were created by setup() in stage 1. 16 to 18 are added by setupStage3().
 // 19 (Room) came with the tea room. setupStage3() adds it with its heading. As a safety net, bookingsSheet_() also
@@ -83,7 +97,7 @@ function setup() {
     set.getRange(1, 1, 5, 3).setValues([
       ['Setting', 'Value', 'Notes'],
       ['Notification emails', '', 'Every committee email that should get booking alerts, separated by commas'],
-      ['Room capacity', '75', 'Shown on the booking form'],
+      ['Room capacity', '80', 'Shown on the booking form'],
       ['Hire terms link', '', 'Web link to the function room hire terms'],
       ['Reply-to email', '', 'Address customers reply to']
     ]);
@@ -136,13 +150,56 @@ function setupStage3() {
     set.appendRow(['Privacy contact', '', 'Email or phone for questions about personal data. Shown on the booking form. Blank means "contact the club"']);
   }
   if (names.indexOf('Tea room capacity') < 0) {
-    set.appendRow(['Tea room capacity', '75', 'Most guests in the tea room. Can be lowered, never raised above 75']);
+    set.appendRow(['Tea room capacity', String(ROOMS.tea.max), capacityNote_('tea')]);
   }
 
   const has = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'purgeOldContacts');
   if (!has) ScriptApp.newTrigger('purgeOldContacts').timeBased().onMonthDay(1).atHour(3).create();
   Logger.log('Stage 3 and tea room ready. Bookings columns: ' + BK_COLS + '. Monthly clean-up trigger: ' + (has ? 'already there' : 'created') + '.');
   Logger.log('Emails left today: ' + MailApp.getRemainingDailyQuota());
+}
+
+/**
+ * Payments and new capacities (14 Nov 2026). Safe to run more than once. Changes only the Settings tab:
+ * - adds a blank "Payment link" row (Pete pastes the Stripe Payment Link into it),
+ * - sets "Room capacity" to 80 and "Tea room capacity" to 50 when blank, above the new limit, or still the old
+ *   default of 75 (only on the first run). A lower number someone chose on purpose is kept,
+ * - brings the notes on those rows and on "Hire terms link" up to date.
+ * Until it is run the diary still works: with no payment link the email says the club will be in touch about payment,
+ * and the capacities are capped in the code anyway.
+ */
+function setupPayments() {
+  const set = sheet_('Settings');
+  const rowOf = name => set.getRange(1, 1, Math.max(1, set.getLastRow()), 1).getValues()
+    .findIndex(r => String(r[0]).trim() === name) + 1; // 0 when missing
+  const done = [];
+  Object.keys(ROOMS).forEach(k => {
+    const max = ROOMS[k].max;
+    const r = rowOf(ROOMS[k].setting);
+    if (!r) { set.appendRow([ROOMS[k].setting, String(max), capacityNote_(k)]); done.push(ROOMS[k].setting + ' added: ' + max); return; }
+    const v = String(set.getRange(r, 2).getValue()).trim();
+    const n = parseInt(v, 10);
+    // 75 was the old limit for both rooms. Changed once: after this run the note is new, so a 75 chosen later is kept.
+    const oldDefault = n === 75 && String(set.getRange(r, 3).getValue()).trim() !== capacityNote_(k);
+    if (!(n >= 1) || n > max || oldDefault) { set.getRange(r, 2).setValue(String(max)); done.push(ROOMS[k].setting + ' ' + (v || 'blank') + ' changed to ' + max); }
+    else done.push(ROOMS[k].setting + ' kept at ' + n);
+    set.getRange(r, 3).setValue(capacityNote_(k));
+  });
+  const termsNote = 'Web link to the hire terms page (hire-terms.html on GitHub Pages). Shown on the booking form and in confirmation emails';
+  const terms = rowOf('Hire terms link');
+  if (terms) set.getRange(terms, 3).setValue(termsNote); else set.appendRow(['Hire terms link', '', termsNote]);
+  const payNote = 'Stripe Payment Link for the ' + money_(HIRE_PRICE) + ' hire fee. Must start https://buy.stripe.com/ with nothing after the code. ' +
+    'Blank means the confirmation email says the club will be in touch about payment';
+  const pay = rowOf('Payment link');
+  if (pay) set.getRange(pay, 3).setValue(payNote); else { set.appendRow(['Payment link', '', payNote]); done.push('Payment link row added'); }
+  bumpCache_();
+  Logger.log('Payments ready. ' + done.join('. ') + '.');
+  const link = paymentLink_(settings_());
+  Logger.log(link ? 'Payment link in use: ' + link : 'No payment link in use yet (blank, or not a https://buy.stripe.com/ link). Emails will say the club will be in touch about payment.');
+}
+
+function capacityNote_(k) {
+  return 'Most guests in the ' + roomName_(k) + ', including staff and entertainers. Can be lowered, never raised above ' + ROOMS[k].max + ' (fire limit)';
 }
 
 /* ============ Web entry points ============ */
@@ -174,7 +231,7 @@ function doPost(e) {
       case 'bookings': return json_(listBookings_());
       case 'approve':  return json_(approveBooking_(body.id, user));
       case 'decline':  return json_(declineBooking_(body.id, body.reason, user));
-      case 'cancel':   return json_(cancelBooking_(body.id, body.reason, user));
+      case 'cancel':   return json_(cancelBooking_(body.id, body.reason, user, body.who, body.asked));
     }
     return json_({ ok: false, error: 'Unknown action.' });
   } catch (err) {
@@ -442,6 +499,7 @@ function requestBooking_(b) {
     'Hello,',
     'Thank you for asking to hire the ' + room + ' at ' + CLUB_NAME + '.',
     'This is a request, not a confirmed booking. The committee will look at it and be in touch. Please do not make firm plans until you hear from us.',
+    REQUEST_PRICE_TEXT,
     ['Room: ' + ROOMS[r.room].label, 'Date: ' + niceDate_(r.date), 'Session: ' + sessionText_(r.sess), 'Reference: ' + ref].join('\n'),
     'If you did not send this request, you can ignore this email.',
     CLUB_NAME
@@ -498,6 +556,10 @@ function approveBooking_(id, user) {
     if (b.status !== 'Pending') fail_('This request has already been ' + b.status.toLowerCase() + '.');
     if (b.date < todayIso_()) fail_('The date of this request has passed. Decline it instead.');
     if (!ROOMS[b.room]) fail_(ROOM_UNKNOWN_MSG);
+    // A request sent before the capacities changed (14 Nov 2026) can be for more guests than the room now holds
+    const cap = capacity_(settings_(), b.room);
+    if (!(Number(b.guests) <= cap)) fail_('This request is for ' + b.guests + ' guests, but the ' + roomName_(b.room) + ' holds up to ' + cap +
+      '. Ask the customer if they can bring their numbers down (then change Guests in the Bookings tab), or decline it.');
     const busy = 'The ' + roomName_(b.room) + ' is no longer free that ' + SESSIONS[b.sess].label.toLowerCase() + '. Decline this request, or cancel the other booking first.';
     if (!isFreeIn_(roomUsesOn_(b.date), b.date, b.sess, b.room)) fail_(busy);
     if (rows.some(x => x.status === 'Approved' && x.id !== b.id && sameRoom_(x.room, b.room) && x.date === b.date && sessionsClash_(x.sess, b.sess))) fail_(busy);
@@ -530,15 +592,8 @@ function approveBooking_(id, user) {
     lock.releaseLock();
   }
   const set = settings_();
-  const terms = termsUrl_(set);
-  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking is confirmed (' + b.id + ')', [
-    'Hello ' + b.name + ',',
-    'Good news. Your ' + roomName_(b.room) + ' booking at ' + CLUB_NAME + ' is confirmed.',
-    detailLines_(b.room, b.date, b.sess, b.type, b.guests, b.id),
-    terms ? 'Please read the hire terms before your event:\n' + terms : 'The club will send you the hire terms before your event.',
-    'If you need to change or cancel, please tell us as soon as you can by replying to this email.',
-    CLUB_NAME
-  ], set, 'Confirmation to customer (' + b.id + ')', b.date);
+  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking is confirmed (' + b.id + ')',
+    confirmationLines_(b, paymentLink_(set), termsUrl_(set), todayIso_()), set, 'Confirmation to customer (' + b.id + ')', b.date);
   return { ok: true, emailed: sent };
 }
 
@@ -555,18 +610,25 @@ function declineBooking_(id, reason, user) {
   return { ok: true, emailed: sent };
 }
 
-function cancelBooking_(id, reason, user) {
+/** who: 'hirer' when the customer asked to cancel (asked is the date they asked, which sets the refund).
+ *  Anything else is the club cancelling (a full refund if they paid). A committee page from before payments sends neither. */
+function cancelBooking_(id, reason, user, who, asked) {
   const why = cleanStr_(reason, 500, true);
-  if (why.length < 3) fail_('Add a reason. It goes in the email to the customer.');
-  const b = decide_(id, 'Approved', { status: 'Cancelled', reason: why }, user, 'Cancelled booking', true, true);
-  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking has been cancelled (' + b.id + ')', [
-    'Hello ' + b.name + ',',
-    'Sorry, the club has had to cancel your ' + roomName_(b.room) + ' booking on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
-    'Reason: ' + why,
-    'We are sorry for the trouble this causes. Please reply to this email if you have any questions.',
-    CLUB_NAME
-  ], settings_(), 'Cancellation to customer (' + b.id + ')', b.date);
-  return { ok: true, emailed: sent };
+  const byHirer = who === 'hirer';
+  const askedOn = byHirer ? String(asked || '') : '';
+  if (byHirer) {
+    if (!isRealDate_(askedOn)) fail_('Add the date the customer asked to cancel.');
+    if (askedOn > todayIso_()) fail_('The date the customer asked to cancel cannot be in the future.');
+  } else if (why.length < 3) fail_('Add a reason. It goes in the email to the customer.');
+  // The Reason cell records who cancelled and the refund due, so whoever does the refund in Stripe can check it
+  const change = b => ({ status: 'Cancelled', reason: byHirer
+    ? 'Customer asked on ' + askedOn + '. Refund due if paid: ' + money_(refundDue_(askedOn, b.date)) + (why ? '. ' + why : '')
+    : 'Cancelled by the club. Full refund if paid. ' + why });
+  const b = decide_(id, 'Approved', change, user, byHirer ? 'Cancelled booking (customer asked)' : 'Cancelled booking', true, true);
+  const lines = byHirer ? hirerCancelLines_(b, why, askedOn) : clubCancelLines_(b, why);
+  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking has been cancelled (' + b.id + ')', lines,
+    settings_(), 'Cancellation to customer (' + b.id + ')', b.date);
+  return { ok: true, emailed: sent, refund: byHirer ? refundDue_(askedOn, b.date) : HIRE_PRICE };
 }
 
 /** Shared by decline and cancel: checks the status, removes calendar events if asked, updates the row.
@@ -585,7 +647,7 @@ function decide_(id, mustBe, change, user, logWhat, removeEvents, needsRoom) {
       });
       bumpCache_();
     }
-    updateBooking_(b, Object.assign({ by: user.name, at: nowText_() }, change));
+    updateBooking_(b, Object.assign({ by: user.name, at: nowText_() }, typeof change === 'function' ? change(b) : change));
     log_(user.name, logWhat, b.type + ' (' + b.id + ')', b.date);
     return b;
   } finally {
@@ -792,7 +854,7 @@ function cellText_(v) {
 /* ---- Pure rules (no Google services, so tests/test-rules.js can check them) ---- */
 
 /** Checks a request and returns clean values. Throws a plain English message on the first problem.
- *  capacity is one number for every room, or { fn: 75, tea: 75 }. A request with no room is for the function room
+ *  capacity is one number for every room, or { fn: 80, tea: 50 }. Either way it is capped at each room's fire limit. A request with no room is for the function room
  *  (that is what a page from before the tea room sends). */
 function validateRequest_(b, today, capacity) {
   const name = cleanStr_(b.name, 80);
@@ -818,7 +880,8 @@ function validateRequest_(b, today, capacity) {
   const g = String(b.guests == null ? '' : b.guests).trim();
   const guests = /^\d{1,4}$/.test(g) ? Number(g) : 0;
   if (guests < 1) fail_('Add roughly how many guests.');
-  const cap = typeof capacity === 'object' ? capacity[room] : capacity;
+  const given = typeof capacity === 'object' ? capacity[room] : capacity;
+  const cap = Math.min(Number(given) || ROOMS[room].max, ROOMS[room].max); // never above the room's fire limit
   if (guests > cap) fail_('The ' + roomName_(room) + ' holds up to ' + cap + ' people, including staff and entertainers.');
 
   const message = cleanStr_(b.message, 1000, true);
@@ -832,6 +895,100 @@ function validateRequest_(b, today, capacity) {
   if (date > addMonthsIso_(today, MAX_AHEAD_MONTHS)) fail_('We take requests up to ' + MAX_AHEAD_MONTHS + ' months ahead.');
 
   return { name: name, phone: phone, email: email, room: room, date: date, sess: sess, type: type, guests: guests, message: message };
+}
+
+/* ---- Payment and refunds (14 Nov 2026). Same wording as rules.js, HIRE-TERMS.md and hire-terms.html ---- */
+
+function money_(n) { return '£' + n; }
+
+const REQUEST_PRICE_TEXT = 'The hire fee is ' + money_(HIRE_PRICE) + '. You do not pay anything now. If the committee approve your booking, ' +
+  'we will email you a link to pay by card. Please pay within ' + PAY_WITHIN_DAYS + ' days of that email.';
+const CANCEL_TERMS_TEXT = 'If you need to cancel, reply to this email or contact the club as soon as you can. If you have paid, we refund ' +
+  money_(REFUND_EARLY) + ' (the fee minus a ' + money_(HIRE_PRICE - REFUND_EARLY) + ' admin fee) if you cancel ' + REFUND_EARLY_DAYS +
+  ' days or more before your event, ' + money_(REFUND_LATE) + ' if you cancel ' + REFUND_LATE_DAYS + ' to ' + (REFUND_EARLY_DAYS - 1) +
+  ' days before, and nothing if you cancel ' + (REFUND_LATE_DAYS - 1) + ' days or fewer before.';
+const REFUND_TIME_TEXT = 'Refunds go back to the card you paid with and usually take 5 to 10 working days to arrive.';
+
+/** The day the hire fee must be paid by: 7 days after the confirmation, or the day of the event if that is sooner. */
+function payBy_(today, eventDate) {
+  const week = addDaysIso_(today, PAY_WITHIN_DAYS);
+  return eventDate < week ? eventDate : week;
+}
+
+/** The customer's own payment address: the club's Payment Link with the booking reference attached, so it shows
+ *  against the payment in Stripe, and their email filled in. Stripe only accepts letters, numbers, - and _ in the
+ *  reference and silently drops anything else, so anything else is removed first. */
+function paymentUrl_(link, ref, email) {
+  if (!PAYMENT_LINK_RE.test(String(link || ''))) return '';
+  const id = String(ref || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
+  const q = [];
+  if (id) q.push('client_reference_id=' + encodeURIComponent(id));
+  if (isEmail_(email)) q.push('prefilled_email=' + encodeURIComponent(email));
+  return link + (q.length ? '?' + q.join('&') : '');
+}
+
+/** The payment paragraph in the confirmation email. No valid link: the club will be in touch. */
+function paymentText_(link, ref, email, today, eventDate) {
+  const url = paymentUrl_(link, ref, email);
+  if (!url) return 'The hire fee is ' + money_(HIRE_PRICE) + '. The club will be in touch about how to pay it.';
+  const by = payBy_(today, eventDate);
+  return 'The hire fee is ' + money_(HIRE_PRICE) + '. Please pay it by ' + niceDate_(by) + (by === eventDate ? ' (the day of your event)' : '') +
+    ' using this secure card payment link. The link carries your booking reference, so we can match your payment to your booking.\n' + url +
+    '\nIf the fee is not paid by then, the club may cancel the booking.';
+}
+
+/** Refund due, in pounds, when the hirer cancels. asked is the date the club was told; days are counted from that
+ *  date to the event date. 29 days or more ("more than 28 days"): £40. 14 to 28 days: £25. 13 days or fewer: nothing. */
+function refundDue_(asked, eventDate) {
+  const days = daysBetween_(asked, eventDate);
+  return days >= REFUND_EARLY_DAYS ? REFUND_EARLY : days >= REFUND_LATE_DAYS ? REFUND_LATE : 0;
+}
+
+/** What the hirer is told about their refund. */
+function hirerRefundText_(asked, eventDate) {
+  const due = refundDue_(asked, eventDate);
+  const when = 'You asked us to cancel on ' + niceDate_(asked) + ', ' + daysBetween_(asked, eventDate) + ' days before your event. ';
+  if (due === REFUND_EARLY) return when + 'If you have paid the ' + money_(HIRE_PRICE) + ' hire fee, we will refund ' + money_(due) +
+    ' (the fee minus a ' + money_(HIRE_PRICE - due) + ' admin fee). ' + REFUND_TIME_TEXT;
+  if (due) return when + 'If you have paid the ' + money_(HIRE_PRICE) + ' hire fee, we will refund ' + money_(due) + '. ' + REFUND_TIME_TEXT;
+  return when + 'As that is less than ' + REFUND_LATE_DAYS + ' days before the event, the hire fee is not refunded.';
+}
+
+const CLUB_REFUND_TEXT = 'If you have paid the ' + money_(HIRE_PRICE) + ' hire fee, we will refund it in full. ' + REFUND_TIME_TEXT;
+
+/** The confirmation email. b is a booking { name, room, date, sess, type, guests, id, email }. */
+function confirmationLines_(b, link, terms, today) {
+  return [
+    'Hello ' + b.name + ',',
+    'Good news. Your ' + roomName_(b.room) + ' booking at ' + CLUB_NAME + ' is confirmed.',
+    detailLines_(b.room, b.date, b.sess, b.type, b.guests, b.id),
+    paymentText_(link, b.id, b.email, today, b.date),
+    terms ? 'Please read the hire terms before your event. They are part of your booking:\n' + terms : 'The club will send you the hire terms before your event.',
+    CANCEL_TERMS_TEXT,
+    CLUB_NAME
+  ];
+}
+
+function clubCancelLines_(b, why) {
+  return [
+    'Hello ' + b.name + ',',
+    'Sorry, the club has had to cancel your ' + roomName_(b.room) + ' booking on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
+    'Reason: ' + why,
+    CLUB_REFUND_TEXT,
+    'We are sorry for the trouble this causes. Please reply to this email if you have any questions.',
+    CLUB_NAME
+  ];
+}
+
+function hirerCancelLines_(b, why, asked) {
+  return [
+    'Hello ' + b.name + ',',
+    'As you asked, we have cancelled your ' + roomName_(b.room) + ' booking on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
+    why ? 'The committee said: ' + why : '',
+    hirerRefundText_(asked, b.date),
+    'Please reply to this email if you have any questions.',
+    CLUB_NAME
+  ];
 }
 
 /** Which bookable session a diary item takes, from its times: 'aft', 'eve', 'day', or '' if neither.
@@ -953,11 +1110,14 @@ function replyTo_(set) { const v = String(set['Reply-to email'] || ''); return i
 function termsUrl_(set) { const v = String(set['Hire terms link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
 function committeeUrl_(set) { const v = String(set['Committee page link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
 function privacyContact_(set) { return cleanStr_(String(set['Privacy contact'] || '').replace(/[<>]/g, ''), 120); }
-/** Most guests for a room (the function room if none given), from Settings. Blank, or over 75, means 75. */
+/** Most guests for a room (the function room if none given), from Settings. Blank, or over the room's fire limit
+ *  (80 function room, 50 tea room), means the fire limit. */
 function capacity_(set, room) {
-  const n = parseInt(set[(ROOMS[room] || ROOMS[DEFAULT_ROOM]).setting], 10);
-  return n >= 1 && n <= MAX_GUESTS ? n : MAX_GUESTS;
+  const r = ROOMS[room] || ROOMS[DEFAULT_ROOM];
+  const n = parseInt(set[r.setting], 10);
+  return n >= 1 && n <= r.max ? n : r.max;
 }
+function paymentLink_(set) { const v = String(set['Payment link'] || '').trim(); return PAYMENT_LINK_RE.test(v) ? v : ''; }
 function capacities_(set) {
   const out = {};
   Object.keys(ROOMS).forEach(k => { out[k] = capacity_(set, k); });

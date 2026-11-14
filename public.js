@@ -13,7 +13,7 @@ const HAS_BACKEND = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.te
 /* Demo mode only: load the pretend server. Normal visits never download it. */
 const demoReady = DEMO ? new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = 'demo.js?v=4'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  s.src = 'demo.js?v=5'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
   document.head.append(s);
 }) : null;
 const IN_FRAME = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
@@ -68,7 +68,7 @@ const S = {
   y: now.getFullYear(), m: now.getMonth(), sel: isoOf(now),
   off: new Set(),
   events: [],                // this month's public items
-  rooms: [{ key: 'fn', label: R.ROOMS.fn.label, capacity: R.MAX_GUESTS }], // the rooms the server says can be hired
+  rooms: [{ key: 'fn', label: R.ROOMS.fn.label, capacity: R.ROOMS.fn.max }], // the rooms the server says can be hired
   taken: {},                 // room -> date -> sessions already booked, for every date loaded so far
   known: new Set(),          // dates we have room information for
   coming: [],
@@ -93,10 +93,11 @@ function firstFree(d) {
 }
 /** Rooms from the server. A server from before the tea room sends none, so only the function room is offered. */
 function readRooms(list, fnCap) {
-  const cap = n => Math.min(+n || R.MAX_GUESTS, R.MAX_GUESTS);
+  // Never above the room's fire limit (80 function room, 50 tea room), whatever the server says
+  const cap = (n, k) => Math.min(+n || R.ROOMS[k].max, R.ROOMS[k].max);
   const out = Array.isArray(list) ? list.filter(x => x && Object.prototype.hasOwnProperty.call(R.ROOMS, x.key))
-    .map(x => ({ key: x.key, label: R.ROOMS[x.key].label, capacity: cap(x.capacity) })) : [];
-  return out.length ? out : [{ key: 'fn', label: R.ROOMS.fn.label, capacity: cap(fnCap) }];
+    .map(x => ({ key: x.key, label: R.ROOMS[x.key].label, capacity: cap(x.capacity, x.key) })) : [];
+  return out.length ? out : [{ key: 'fn', label: R.ROOMS.fn.label, capacity: cap(fnCap, 'fn') }];
 }
 
 /* ---------- server ---------- */
@@ -300,14 +301,15 @@ function dayCard() {
 function rulesList() {
   return h('ul', { class: 'rules' },
     h('li', null, 'This is a request, not a booking. The committee will confirm by email or phone.'),
-    h('li', null, 'Afternoon is 12pm to 5pm. Evening is 6pm to midnight. Whole day is both.'),
+    h('li', null, h('b', null, 'Hire is £' + R.PRICE + '.'), ' Any room, any session. You pay after the committee approve your booking, using a card payment link in your confirmation email. Pay within ' + R.PAY_WITHIN_DAYS + ' days of that email.'),
+    h('li', null, 'Afternoon is 12pm to 5pm. Evening is 6pm to midnight. Whole day is both. Music finishes by 11.30pm and guests leave by midnight.'),
     h('li', null, 'Please ask at least ' + S.rules.minNotice + " days ahead. Funeral wakes can be shorter notice."),
     h('li', null, 'We take requests up to ' + S.rules.maxMonths + ' months ahead.'),
     h('li', null, capacityText()),
     S.rules.termsUrl ? h('li', null, 'Read the ', h('a', { href: S.rules.termsUrl, target: '_blank', rel: 'noopener' }, 'hire terms'), '.') : null);
 }
 
-/** "Each room holds up to 75 people..." or, if the Settings differ, each room in turn. */
+/** "The function room holds up to 80 people and the tea room up to 50..." (or "Each room..." if the Settings make them the same). */
 function capacityText() {
   const end = ', including staff and entertainers.';
   const [a, ...rest] = S.rooms;
@@ -334,7 +336,7 @@ function privacyNote() {
 function ctaCard() {
   return h('div', { class: 'card cta' },
     h('h3', null, hireTitle()),
-    h('p', { class: 'sub' }, (oneRoom() ? '' : 'The function room and the tea room are hired separately. ') +
+    h('p', { class: 'sub' }, (oneRoom() ? '' : 'The function room (the bar) and the tea room are hired separately. ') +
       'For parties, christenings, wakes, meetings and more. Pick a free date and send us a request.'),
     rulesList(),
     h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn gold', onclick: () => {
@@ -456,6 +458,7 @@ function sentCard() {
     h('p', { class: 'big' }, 'This is a request, not a confirmed booking. The committee will be in touch.'),
     s.ref ? h('p', { class: 'sub' }, roomInfo(s.room).label + ', ' + nice(s.date) + ', ' + R.SESSIONS[s.sess].label.toLowerCase() + '. Your reference is ', h('b', null, s.ref), '.') : null,
     s.ref && s.emailed ? h('p', { class: 'sub' }, "We've emailed you a copy. If you can't see it, check your junk folder.") : null,
+    s.ref ? h('p', { class: 'sub' }, 'You do not pay anything now. If the committee approve your booking, we will email you a link to pay the £' + R.PRICE + ' hire fee.') : null,
     h('div', { class: 'row' }, h('button', { class: 'btn line', onclick: () => { S.sent = null; renderSide(); } }, 'Done')));
 }
 

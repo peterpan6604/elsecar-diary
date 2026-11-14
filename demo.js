@@ -4,11 +4,12 @@
    share it: send a request on index.html?demo=1, then approve it on committee.html?demo=1.
    Emails are not sent. They are listed in a "demo outbox" on the committee page instead.
    Test switches (add to the page address): quota=low pretends the day's email allowance is nearly used up,
-   mailfail=1 pretends every email fails, so the "Needs attention" warning shows. */
+   mailfail=1 pretends every email fails, so the "Needs attention" warning shows,
+   nolink=1 pretends the Settings tab has no payment link, so the confirmation email says the club will be in touch. */
 (function () {
 'use strict';
 const R = window.DiaryRules;
-const KEY = 'ecc-diary-demo-v5'; // v5: tea room
+const KEY = 'ecc-diary-demo-v6'; // v6: payments and new capacities
 const pad = n => String(n).padStart(2, '0');
 const isoOf = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const TODAY = isoOf(new Date());
@@ -20,7 +21,10 @@ const FLAGS = new URLSearchParams(location.search);
 const LOCKED = 'This is an online booking. To cancel it, use Cancel in the Room bookings card so the customer is told.';
 const roomName = R.roomName;
 const roomLabel = k => R.ROOMS[k].label;
-const CAPS = { fn: 75, tea: 75 };
+const CAPS = { fn: R.ROOMS.fn.max, tea: R.ROOMS.tea.max }; // 80 and 50
+// Demo only. Clearly fake: the real link is pasted into the Settings tab by Pete. Never a real Stripe link here.
+const DEMO_PAYMENT_LINK = 'https://buy.stripe.com/DEMOnotARealPaymentLink';
+const DEMO_TERMS_URL = 'https://peterpan6604.github.io/elsecar-diary/hire-terms.html';
 
 let memory = null; // used if this browser blocks storage
 function load() {
@@ -171,7 +175,7 @@ function run(st, action, p, who) {
       });
       const taken = {};
       Object.keys(marks).forEach(r => { taken[r] = {}; Object.keys(marks[r]).sort().forEach(d => { taken[r][d] = ['aft', 'eve'].filter(s => marks[r][d][s]); }); });
-      return { ok: true, events, taken, roomTaken: taken.fn, rules: { today: TODAY, capacity: CAPS.fn, termsUrl: '', minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS,
+      return { ok: true, events, taken, roomTaken: taken.fn, rules: { today: TODAY, capacity: CAPS.fn, termsUrl: DEMO_TERMS_URL, minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS,
         rooms: Object.keys(R.ROOMS).map(k => ({ key: k, label: roomLabel(k), capacity: CAPS[k] })),
         shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES, privacyContact: '' } };
     }
@@ -195,6 +199,7 @@ function run(st, action, p, who) {
       const sent = mail(st, b.email, 'Your ' + room + ' request (' + b.id + ')', ['Hello,',
         'Thank you for asking to hire the ' + room + ' at Elsecar Sports & Social Club.',
         'This is a request, not a confirmed booking. The committee will look at it and be in touch. Please do not make firm plans until you hear from us.',
+        R.REQUEST_PRICE_TEXT,
         ['Room: ' + roomLabel(b.room), 'Date: ' + R.niceDate(b.date), 'Session: ' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time, 'Reference: ' + b.id].join('\n'),
         'If you did not send this request, you can ignore this email.', 'Elsecar Sports & Social Club'], 'Acknowledgement to customer (' + b.id + ')', b.date);
       mail(st, 'every committee address in Settings', roomLabel(b.room) + ' request: ' + R.niceDate(b.date) + ', ' + R.SESSIONS[b.sess].label.toLowerCase() + ' (' + b.id + ')', [
@@ -224,6 +229,8 @@ function run(st, action, p, who) {
       if (b.status !== 'Pending') fail('This request has already been ' + b.status.toLowerCase() + '.');
       if (b.date < TODAY) fail('The date of this request has passed. Decline it instead.');
       b.room = roomOf(b);
+      if (!(Number(b.guests) <= CAPS[b.room])) fail('This request is for ' + b.guests + ' guests, but the ' + roomName(b.room) + ' holds up to ' + CAPS[b.room] +
+        '. Ask the customer if they can bring their numbers down (then change Guests in the Bookings tab), or decline it.');
       const busy = 'The ' + roomName(b.room) + ' is no longer free that ' + R.SESSIONS[b.sess].label.toLowerCase() + '. Decline this request, or cancel the other booking first.';
       if (!free(st, b.date, b.sess, b.room)) fail(busy);
       approveInto(st, b, who);
@@ -231,8 +238,9 @@ function run(st, action, p, who) {
       addLog(st, who, 'Approved booking', b.type + ' (' + b.id + ')', b.date);
       const sent = mail(st, b.email, 'Your ' + roomName(b.room) + ' booking is confirmed (' + b.id + ')', ['Hello ' + b.name + ',',
         'Good news. Your ' + roomName(b.room) + ' booking at Elsecar Sports & Social Club is confirmed.', details(b),
-        'The club will send you the hire terms before your event.', 'If you need to change or cancel, please tell us as soon as you can by replying to this email.',
-        'Elsecar Sports & Social Club'], 'Confirmation to customer (' + b.id + ')', b.date);
+        R.paymentText(FLAGS.get('nolink') === '1' ? '' : DEMO_PAYMENT_LINK, b.id, b.email, TODAY, b.date),
+        'Please read the hire terms before your event. They are part of your booking:\n' + DEMO_TERMS_URL,
+        R.CANCEL_TERMS_TEXT, 'Elsecar Sports & Social Club'], 'Confirmation to customer (' + b.id + ')', b.date);
       return { ok: true, emailed: sent };
     }
     case 'decline': {
@@ -248,16 +256,26 @@ function run(st, action, p, who) {
     }
     case 'cancel': {
       const why = R.clean(p.reason, 500, true);
-      if (why.length < 3) fail('Add a reason. It goes in the email to the customer.');
+      const byHirer = p.who === 'hirer';
+      const asked = byHirer ? String(p.asked || '') : '';
+      if (byHirer) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(asked)) fail('Add the date the customer asked to cancel.');
+        if (asked > TODAY) fail('The date the customer asked to cancel cannot be in the future.');
+      } else if (why.length < 3) fail('Add a reason. It goes in the email to the customer.');
       const b = findBk(st, p.id);
       if (b.status !== 'Approved') fail('This booking is already ' + b.status.toLowerCase() + '.');
       st.events = st.events.filter(e => e.id !== b.cal && e.id !== b.bar);
-      Object.assign(b, { status: 'Cancelled', by: who, at: nowText(), reason: why });
-      addLog(st, who, 'Cancelled booking', b.type + ' (' + b.id + ')', b.date);
-      const sent = mail(st, b.email, 'Your ' + roomName(roomOf(b)) + ' booking has been cancelled (' + b.id + ')', ['Hello ' + b.name + ',',
-        'Sorry, the club has had to cancel your ' + roomName(roomOf(b)) + ' booking on ' + R.niceDate(b.date) + ' (' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time + ').',
-        'Reason: ' + why, 'We are sorry for the trouble this causes. Please reply to this email if you have any questions.', 'Elsecar Sports & Social Club'], 'Cancellation to customer (' + b.id + ')', b.date);
-      return { ok: true, emailed: sent };
+      const refund = byHirer ? R.refundDue(asked, b.date) : R.PRICE;
+      Object.assign(b, { status: 'Cancelled', by: who, at: nowText(), reason: byHirer ? 'Customer asked on ' + asked + '. Refund due if paid: £' + refund + (why ? '. ' + why : '') : 'Cancelled by the club. Full refund if paid. ' + why });
+      addLog(st, who, byHirer ? 'Cancelled booking (customer asked)' : 'Cancelled booking', b.type + ' (' + b.id + ')', b.date);
+      const when = R.niceDate(b.date) + ' (' + R.SESSIONS[b.sess].label + ', ' + R.SESSIONS[b.sess].time + ')';
+      const lines = byHirer
+        ? ['Hello ' + b.name + ',', 'As you asked, we have cancelled your ' + roomName(roomOf(b)) + ' booking on ' + when + '.',
+          why ? 'The committee said: ' + why : '', R.hirerRefundText(asked, b.date), 'Please reply to this email if you have any questions.', 'Elsecar Sports & Social Club']
+        : ['Hello ' + b.name + ',', 'Sorry, the club has had to cancel your ' + roomName(roomOf(b)) + ' booking on ' + when + '.',
+          'Reason: ' + why, R.CLUB_REFUND_TEXT, 'We are sorry for the trouble this causes. Please reply to this email if you have any questions.', 'Elsecar Sports & Social Club'];
+      const sent = mail(st, b.email, 'Your ' + roomName(roomOf(b)) + ' booking has been cancelled (' + b.id + ')', lines, 'Cancellation to customer (' + b.id + ')', b.date);
+      return { ok: true, emailed: sent, refund };
     }
   }
   fail('Unknown action.');

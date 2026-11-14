@@ -170,3 +170,6 @@ footer .wrap{padding-block:0 30px}
 .tag.room-fn{background:var(--gold-soft);color:var(--ink);margin-left:0}
 .tag.room-tea{background:color-mix(in srgb,var(--c-club) 14%,transparent);color:var(--c-club);margin-left:0}
 .tag.room-unknown{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad);margin-left:0}
+/* cancel booking: who is cancelling */
+fieldset.f{border:0;padding:0;margin:0;min-width:0;display:flex;flex-direction:column;gap:6px}
+fieldset.f legend{font-size:13px;font-weight:600;padding:0;margin-bottom:4px}

@@ -22,7 +22,7 @@ if (window.self !== window.top && !DEMO) {
 /* Demo mode only: load the pretend server. Normal visits never download it. */
 const demoReady = DEMO ? new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = 'demo.js?v=4'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  s.src = 'demo.js?v=5'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
   document.head.append(s);
 }) : null;
 
@@ -382,7 +382,8 @@ function attentionEl() {
 function upcomingCard() {
   return h('div', { class: 'card' },
     h('h3', null, 'Room bookings'),
-    h('p', { class: 'sub' }, 'Approved online bookings for the function room and tea room coming up. Each one has a bar cover reminder in the diary.'),
+    h('p', { class: 'sub' }, 'Approved online bookings for the function room and tea room coming up. Each one has a bar cover reminder in the diary. ' +
+      'To see if someone has paid the £' + window.DiaryRules.PRICE + ', search for their reference or email in Stripe.'),
     bkCardBody(S.upcoming, 'No online bookings coming up.', b => h('div', { class: 'req' },
       h('div', { class: 'ttl' }, roomTag(b), ' ', b.type, h('span', { class: 'ref' }, b.id)),
       h('div', { class: 'meta' }, bkMeta(b)),
@@ -405,24 +406,45 @@ function bookingAction(b, kind) {
   const room = ROOM_NAME[roomOfBk(b)].toLowerCase();
   const C = {
     approve: { title: 'Approve this booking?', go: 'Approve booking', cls: 'btn', busy: 'Approving…', done: 'Approved',
-      lines: ['Adds "Private party (' + room + ')" to the diary for that session. The public see the ' + room + ' as booked. The other room stays free.', 'Adds a bar cover reminder to the diary.', 'Emails ' + b.name + ' to confirm the booking.'] },
+      lines: ['Adds "Private party (' + room + ')" to the diary for that session. The public see the ' + room + ' as booked. The other room stays free.', 'Adds a bar cover reminder to the diary.', 'Emails ' + b.name + ' to confirm the booking, with the link to pay the £' + window.DiaryRules.PRICE + ' hire fee within ' + window.DiaryRules.PAY_WITHIN_DAYS + ' days.'] },
     decline: { title: 'Decline this request?', go: 'Decline request', cls: 'btn danger', busy: 'Declining…', done: 'Declined',
       label: 'Reason (optional). It goes in the email to the customer.', lines: ['Emails ' + b.name + ' to say the club cannot take the booking.'] },
     cancel: { title: 'Cancel this booking?', go: 'Cancel booking', cls: 'btn danger', busy: 'Cancelling…', done: 'Cancelled', required: true,
-      label: 'Reason. It goes in the email to the customer.', lines: ['Removes the ' + room + ' booking and its bar cover reminder from the diary.', 'Emails ' + b.name + ' with your reason.'] }
+      label: 'Reason. It goes in the email to the customer.', lines: ['Removes the ' + room + ' booking and its bar cover reminder from the diary.', 'Emails ' + b.name + ' with your reason and what refund they get if they have paid.'] }
   }[kind];
   const reason = C.label ? h('textarea', { id: 'bkReason', maxlength: '500', placeholder: kind === 'cancel' ? 'e.g. The room is needed for essential repairs.' : '' }) : null;
   const err = h('p', { class: 'err', role: 'alert', hidden: true });
+  // Cancel: who is cancelling sets the refund. The club: full refund. The customer: it depends on the date they asked.
+  const RR = window.DiaryRules;
+  let who = '';
+  const refundNote = h('p', { class: 'warn', role: 'note', hidden: true });
+  const asked = kind === 'cancel' ? h('input', { id: 'bkAsked', type: 'date', value: TODAY, max: TODAY, onchange: () => showRefund() }) : null;
+  const askedField = asked ? h('div', { class: 'f', hidden: true }, h('label', { for: 'bkAsked' }, 'Date the customer asked to cancel'), asked) : null;
+  const reasonLabel = reason ? h('label', { for: 'bkReason' }, C.label) : null;
+  function showRefund() {
+    askedField.hidden = who !== 'hirer';
+    reasonLabel.textContent = who === 'hirer' ? 'Note for the customer (optional). It goes in the email.' : C.label;
+    reason.placeholder = who === 'hirer' ? '' : 'e.g. The room is needed for essential repairs.';
+    setErr(err, '');
+    const due = who === 'club' ? RR.PRICE : who === 'hirer' && /^\d{4}-\d{2}-\d{2}$/.test(asked.value) ? RR.refundDue(asked.value, b.date) : null;
+    refundNote.hidden = due === null;
+    if (due !== null) refundNote.textContent = due ? 'If they have paid, refund £' + due + ' in Stripe.' + (who === 'club' ? ' The club cancelling means a full refund.' : '') : 'No refund is due (less than 14 days before the event).';
+  }
+  const whoField = kind === 'cancel' ? h('fieldset', { class: 'f' }, h('legend', null, 'Who is cancelling?'),
+    [['club', 'The club (full refund)'], ['hirer', 'The customer asked to cancel']].map(([v, t]) => h('label', { class: 'check' },
+      h('input', { type: 'radio', name: 'bkWho', value: v, onchange: () => { who = v; showRefund(); } }), t))) : null;
   const go = h('button', { class: C.cls, type: 'button' }, C.go);
   const back = h('button', { class: 'btn line', type: 'button', onclick: closeModal }, 'Back');
   go.addEventListener('click', async () => {
     const why = reason ? reason.value.trim() : '';
-    if (C.required && why.length < 3) return setErr(err, 'Add a reason. It goes in the email to the customer.');
+    if (kind === 'cancel' && !who) return setErr(err, 'Choose who is cancelling.');
+    if (C.required && who !== 'hirer' && why.length < 3) return setErr(err, 'Add a reason. It goes in the email to the customer.');
     setErr(err, ''); go.disabled = true; back.disabled = true; go.textContent = C.busy;
     try {
-      const r = await api(kind, { id: b.id, reason: why });
+      const r = await api(kind, Object.assign({ id: b.id, reason: why }, kind === 'cancel' ? { who, asked: who === 'hirer' ? asked.value : '' } : {}));
       closeModal();
-      toast(C.done + '. ' + (r.emailed ? b.name + ' has been emailed.' : "The email couldn't be sent, so please tell " + b.name + ' yourself.'));
+      const refund = kind === 'cancel' && typeof r.refund === 'number' ? (r.refund ? ' If they have paid, refund £' + r.refund + ' in Stripe.' : ' No refund is due.') : '';
+      toast(C.done + '. ' + (r.emailed ? b.name + ' has been emailed.' : "The email couldn't be sent, so please tell " + b.name + ' yourself.') + refund);
       loadBookings(); afterChange();
     } catch (e) { if (e.auth) return; setErr(err, e.message); go.disabled = false; back.disabled = false; go.textContent = C.go; }
   });
@@ -430,7 +452,9 @@ function bookingAction(b, kind) {
     h('div', { class: 'summary' }, h('b', null, b.type + ' · ' + b.id), h('span', null, ROOM_NAME[roomOfBk(b)] + ', ' + nice(b.date) + ', ' + (SESS_NAME[b.sess] || '')), h('span', null, b.guests + ' guests · ' + b.name)),
     b.clash && kind === 'approve' ? h('p', { class: 'warn' }, h('b', null, 'Clash: '), b.clash) : null,
     h('ul', { class: 'does' }, C.lines.map(l => h('li', null, l))),
-    reason ? h('div', { class: 'f' }, h('label', { for: 'bkReason' }, C.label), reason) : null,
+    whoField, askedField,
+    reason ? h('div', { class: 'f' }, reasonLabel, reason) : null,
+    refundNote,
     err, h('div', { class: 'row' }, go, back));
 }
 

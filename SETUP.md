@@ -45,7 +45,7 @@ To change the code later (for example when someone leaves the committee), edit t
 
 In the **Club Diary Admin** sheet → **Settings** tab:
 - **Notification emails:** every committee email address, separated by commas
-- **Room capacity:** already set to 75
+- **Room capacity:** already set (80 from step 11)
 - **Hire terms link** and **Reply-to email** can wait until stage 3
 
 ## 7. Send Pete
@@ -77,7 +77,7 @@ Do this **after** the stage 3 code has been reviewed and Pete has said it can go
    - **Notification emails**: every committee address, separated by commas.
    - **Hire terms link**: leave blank until the terms are agreed. Blank means the confirmation email says "The club will send you the hire terms".
    - **Reply-to email**: the address customers should reply to. Blank means replies go to the club Gmail.
-   - **Room capacity**: 75. It can be lowered but never raised above 75.
+   - **Room capacity**: 75 at the time. From step 11 the limit is 80. It can be lowered but never raised.
    - **Privacy contact**: an email address or phone number people can use to ask about their personal data. It is shown on the booking form. Blank means the form says "contact the club".
 7. Send yourself a test request from the public page, approve it on the committee page, then cancel it. You should get three emails, and the committee addresses one alert.
 
@@ -111,4 +111,61 @@ Do this **after** Pete has said the tea room can go live. Signed in as the club 
 8. Ask the committee to reopen the diary on their phones before they edit anything. This is a precaution. The new Apps Script keeps an item's tea room tick if it is saved from an old copy of the page, but only the new page shows that tick.
 9. Test: on the public page, request the **tea room** for an evening that already has a function room booking. Approve it on the committee page, check the diary shows "Private party (tea room)" and a bar cover reminder, then cancel it. You should get three emails that all say "tea room".
 
-**Tea room capacity** in the Settings tab: 75. It can be lowered but never raised above 75. Blank means 75. **Room capacity** is still the function room.
+**Tea room capacity** in the Settings tab: 75 at the time. From step 11 the limit is 50. It can be lowered but never raised. **Room capacity** is still the function room.
+
+## 11. Payments, new room limits and the hire terms page
+
+Do this **after** Pete has said payments can go live. About 30 minutes. Do the steps in this order.
+
+**What it costs:** Stripe has no monthly fee. It takes a fee from each payment (for a standard UK card about 1.5% plus 20p, so roughly 95p of each £50). If you refund someone, Stripe does not give that fee back. Check the current fees on Stripe's pricing page before you start.
+
+### A. Make the £50 Payment Link in Stripe (signed in to the club's Stripe account)
+
+1. At the top of the Stripe Dashboard, make sure **Test mode** is **off**. A test link starts `https://buy.stripe.com/test_` and the diary will ignore it.
+2. Go to **Payment Links** and click **+ New** (or **Create payment link**).
+3. Choose **Products or subscriptions**, then **+ Add a new product**:
+   - Name: **Room hire, Elsecar Sports & Social Club**
+   - Description: **Hire of the function room or tea room. Fee for one booking.**
+   - Price: **£50.00**, **GBP**, **One off** (not recurring).
+4. Leave **Let customers adjust quantity** switched **off**, so it is always one booking at £50.
+5. Under **Options** (or **Advanced options**):
+   - **Collect customers' addresses**: off.
+   - **Require customers to provide a phone number**: off. The club already has it from the request.
+   - **Allow promotion codes**: off.
+   - **Add custom fields**: none. The booking reference is added to each customer's link by the diary.
+   - **Limit the number of payments**: off.
+   - Stripe always asks for an email address and the name on the card. That is enough.
+6. Under **After payment**, choose **Show confirmation page** and add this message: `Thank you. Your room hire fee for Elsecar Sports & Social Club is paid. Keep your receipt email.`
+7. Click **Create link**. Copy the link. It looks like `https://buy.stripe.com/` followed by letters and numbers.
+8. Stripe **Settings** → **Customer emails**: switch on **Successful payments** so every customer gets a receipt. Switch on **Refunds** too, so they are told when a refund is made.
+
+### B. The Apps Script (signed in as the club account)
+
+1. Open the **Club Diary** Apps Script project. In `Code.gs`, select everything, delete it, and paste in the new `apps-script/Code.gs`. Save (Ctrl+S).
+2. In the function drop-down choose **setupPayments** and click **Run**.
+   - The log should start "Payments ready." It adds a **Payment link** row to the **Settings** tab, changes **Room capacity** from 75 to **80** and **Tea room capacity** from 75 to **50**, and updates the notes on those rows and on **Hire terms link**. Running it again does no harm, and a lower number someone has chosen on purpose is kept.
+   - Google should not ask for new permissions. If it does, allow them as before.
+3. Open the **Club Diary Admin** sheet, **Settings** tab. Paste the Stripe link into **Payment link**, column B. Paste only the link, with nothing before or after it.
+4. Back in Apps Script, run **setupPayments** once more. The last log line should say "Payment link in use:" and your link. If it says "No payment link in use yet", the link is blank, is a test link, or has something extra on it. Paste it again.
+5. Redeploy: **Deploy** → **Manage deployments** → pencil → Version: **New version** → **Deploy**. Never "New deployment".
+6. Check `<exec-url>?action=ping` still shows `{"ok":true,...}`.
+7. Check `<exec-url>?action=public&from=2026-12-01&to=2026-12-31` shows `"capacity":80` for the function room and `"capacity":50` for the tea room.
+
+### C. The web pages
+
+1. Only now publish the new pages (merge the `payments` branch into `main` and push). GitHub Pages takes about 10 minutes. Then hard refresh (Ctrl+F5, or close and reopen the tab on a phone).
+2. Open `https://peterpan6604.github.io/elsecar-diary/hire-terms.html`. Check it loads on your phone. Anything still to be confirmed shows in amber.
+3. Paste that address into **Hire terms link** in the **Settings** tab. It then shows on the request form and in every confirmation email.
+4. Ask the committee to reopen the diary on their phones, so they get the new **Cancel booking** box.
+
+### D. Test it
+
+1. On the public page, check the form says **Hire is £50** and the rooms say up to **80** and up to **50** people.
+2. Send yourself a request. The acknowledgement email should mention the £50 and say you pay nothing now.
+3. Approve it on the committee page. The confirmation email should have a pay by date, a `buy.stripe.com` link ending in `?client_reference_id=ECC-...`, the hire terms link and the refund rules.
+4. Click the link. Stripe should show **£50.00**. You can stop there, or pay and then refund yourself in Stripe (Stripe keeps its fee, about 95p).
+5. Cancel the booking and choose **The customer asked to cancel**. Check the email gives the right refund for the date.
+
+**If anything goes wrong with the Payment link:** clear the **Payment link** cell. Confirmation emails then say "The club will be in touch about how to pay it", and nothing else changes.
+
+**Bookings approved before this update** got the old email with no payment link. Contact those customers yourself about the £50, or decide not to charge them.
