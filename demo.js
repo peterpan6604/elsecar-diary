@@ -131,8 +131,10 @@ function run(st, action, p, who) {
       if (CATS.indexOf(x.cat) < 0) fail('Choose a type for this item.');
       if (!x.date) fail('Choose a date.');
       if (!x.start || !x.end) fail('Add a start and finish time.');
+      const stored = x.id ? st.events.find(e => e.id === x.id) : null;
+      const use = R.roomsForSave(x, stored || null);
       const rec = { date: x.date, start: x.start, end: x.end, allDay: false, title: x.title.trim().slice(0, 100), cat: x.cat, src: '', status: 'confirmed',
-        notes: String(x.notes || '').slice(0, 1000), pub: x.cat === 'room' ? true : !!x.pub, room: !!x.room || (x.cat === 'room' && !x.tea), tea: !!x.tea, by: who, bk: '' };
+        notes: String(x.notes || '').slice(0, 1000), pub: x.cat === 'room' ? true : !!x.pub, room: use.fn, tea: use.tea, by: who, bk: '' };
       const mine = R.sessionOf(rec.start, rec.end);
       R.roomsOf(rec).forEach(r => {
         const hit = st.events.find(e => e.bk && e.date === rec.date && e.id !== x.id && R.roomsOf(e).indexOf(r) >= 0 && R.clash(R.sessionOf(e.start, e.end), mine));

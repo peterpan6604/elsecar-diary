@@ -22,7 +22,7 @@ if (window.self !== window.top && !DEMO) {
 /* Demo mode only: load the pretend server. Normal visits never download it. */
 const demoReady = DEMO ? new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = 'demo.js?v=3'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  s.src = 'demo.js?v=4'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
   document.head.append(s);
 }) : null;
 
@@ -329,8 +329,9 @@ function renderSide() {
 /* ---------- room hire requests and bookings (stage 3, tea room added 14 Nov 2026) ----------
    Contact details only ever appear here, behind sign-in. They are never put in the calendar. */
 const SESS_NAME = { aft: 'Afternoon (12pm to 5pm)', eve: 'Evening (6pm to midnight)', day: 'Whole day (12pm to midnight)' };
-const ROOM_NAME = { fn: 'Function room', tea: 'Tea room' };
-const roomOfBk = b => ROOM_NAME[b.room] ? b.room : 'fn'; // older bookings have no room: the function room
+const ROOM_NAME = { fn: 'Function room', tea: 'Tea room', unknown: 'Room not recognised' };
+// Older bookings have no room: the function room. The server sends 'unknown' when the Room cell matches neither room.
+const roomOfBk = b => !b.room ? 'fn' : ROOM_NAME[b.room] ? b.room : 'unknown';
 const roomTag = b => h('span', { class: 'tag room-' + roomOfBk(b) }, ROOM_NAME[roomOfBk(b)]);
 const bkMeta = b => short(b.date) + ' · ' + (SESS_NAME[b.sess] || '') + ' · ' + b.guests + ' guests';
 

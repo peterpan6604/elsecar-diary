@@ -99,15 +99,16 @@ Do this **after** Pete has said the tea room can go live. Signed in as the club 
 
 1. Open the **Club Diary Admin** sheet, **Bookings** tab. Look at **column S** (the 19th column). It should be empty. If anyone has typed anything in it, move that somewhere else first, because the diary now uses column S for the room.
 2. Open the **Club Diary** Apps Script project. In `Code.gs`, select everything, delete it, and paste in the new `apps-script/Code.gs`. Save (Ctrl+S).
-3. In the function drop-down choose **setupStage3** and click **Run**.
-   - The log should say "Stage 3 and tea room ready. Bookings columns: 19".
+3. **Required, do not skip:** in the function drop-down choose **setupStage3** and click **Run**. Do this before redeploying in step 4.
+   - The log should say "Stage 3 and tea room ready. Bookings columns: 19". If it doesn't, stop and tell Pete.
    - It puts the heading **Room** in column S of the Bookings tab and adds a **Tea room capacity** row (75) to the Settings tab. Existing bookings are not changed. Their Room cell stays blank, and blank means the function room.
    - Running it twice does no harm. Google should not ask for new permissions. If it does, allow them as before.
+   - Afterwards, only ever type **Function room**, **Tea room** or nothing in the Room column. Anything else stops that booking being approved or cancelled until it is corrected ("Room not recognised"), and it counts as using both rooms in clash warnings.
 4. Redeploy: **Deploy** → **Manage deployments** → pencil → Version: **New version** → **Deploy**. Never "New deployment".
 5. Check `<exec-url>?action=ping` still shows `{"ok":true,...}`.
 6. Check `<exec-url>?action=public&from=2026-12-01&to=2026-12-31` shows `"taken":{"fn":` and `"tea":`, and `"rooms"`.
 7. Only now publish the new web pages (merge the `tea-room` branch into `main` and push). GitHub Pages takes about 10 minutes. Then hard refresh both pages (Ctrl+F5, or close and reopen the tab on a phone).
-8. Ask the committee to reopen the diary on their phones before they edit anything. An old copy of the committee page does not know about the tea room tick, and saving an item from it would clear that tick.
+8. Ask the committee to reopen the diary on their phones before they edit anything. This is a precaution. The new Apps Script keeps an item's tea room tick if it is saved from an old copy of the page, but only the new page shows that tick.
 9. Test: on the public page, request the **tea room** for an evening that already has a function room booking. Approve it on the committee page, check the diary shows "Private party (tea room)" and a bar cover reminder, then cancel it. You should get three emails that all say "tea room".
 
 **Tea room capacity** in the Settings tab: 75. It can be lowered but never raised above 75. Blank means 75. **Room capacity** is still the function room.

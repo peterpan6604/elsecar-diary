@@ -143,6 +143,32 @@ eq(G.roomKey_('Function room'), 'fn', 'Function room read back from the sheet');
 eq(G.bookingRowValues_({ id: 'ECC-AAAAAA', sess: 'eve', room: 'tea' })[18], 'Tea room', 'room saved to the sheet as its label');
 eq(G.bookingRowValues_({ id: 'ECC-AAAAAA' }).length, 19, 'a booking row has 19 columns');
 
+/* a Room cell that matches neither room */
+eq(G.roomKey_('Bar'), 'unknown', 'an unrecognised Room cell is not quietly the function room');
+eq(G.roomKey_('Function'), 'unknown', 'a part name is not recognised either');
+ok(G.sameRoom_('unknown', 'tea') && G.sameRoom_('fn', 'unknown'), 'an unrecognised room is treated as taking both rooms in clash checks');
+ok(G.sameRoom_('', 'fn') && !G.sameRoom_('fn', 'tea'), 'blank is the function room, and the two rooms are different');
+const u1 = { id: 'ECC-UUUUU1', date: 'A', sess: 'eve', room: 'unknown' };
+ok(/Room not recognised/.test(G.clashNote_(u1, [u1], [])), 'committee is told the room is not recognised');
+ok(/ECC-TTTTT9/.test(G.clashNote_(u1, [u1, { id: 'ECC-TTTTT9', date: 'A', sess: 'eve', room: 'tea' }], [])), 'an unrecognised room clashes with a tea room request');
+ok(/ECC-UUUUU1/.test(G.clashNote_({ id: 'ECC-FFFFF9', date: 'A', sess: 'day', room: 'fn' }, [u1], [])), 'and with a function room request');
+eq(G.bookingRowValues_({ id: 'ECC-AAAAAA', room: 'unknown', roomText: 'Bar' })[18], 'Bar', 'an unrecognised room is written back exactly as typed');
+eq(G.roomName_('unknown'), 'room', 'emails say just "room" for an unrecognised room');
+
+/* saving a committee item: which rooms it takes */
+const sv = (x, old) => G.roomsForSave_(x, old);
+const teaOnly = { cat: 'club', room: '0', tea: '1' }, teaHire = { cat: 'room', room: '0', tea: '1' };
+eq(sv({ cat: 'club', room: false }, teaOnly), { fn: false, tea: true }, 'an old page editing an item keeps its tea room tick');
+eq(sv({ cat: 'room', room: true }, teaHire), { fn: false, tea: true }, 'an old page editing tea room hire does not flip it to the function room');
+eq(sv({ cat: 'club', room: true }, { cat: 'club', room: '1', tea: '1' }), { fn: true, tea: true }, 'an old page keeps both ticks');
+eq(sv({ cat: 'club', room: false }, { cat: 'club', room: '1', tea: '0' }), { fn: false, tea: false }, 'an old page can still untick the function room on an ordinary item');
+eq(sv({ cat: 'room', room: true }, { cat: 'room', room: '1', tea: '' }), { fn: true, tea: false }, 'an old page editing an older function room hire keeps the function room');
+eq(sv({ cat: 'room', room: true }, null), { fn: true, tea: false }, 'a new room hire item from an old page is the function room');
+eq(sv({ cat: 'room' }, null), { fn: true, tea: false }, 'room hire with nothing ticked is the function room');
+eq(sv({ cat: 'club', room: false, tea: false }, teaOnly), { fn: false, tea: false }, 'the new page can untick the tea room');
+eq(sv({ cat: 'room', room: false, tea: true }, { cat: 'room', room: '1', tea: '0' }), { fn: false, tea: true }, 'the new page can move room hire to the tea room');
+eq(sv({ cat: 'club', room: false, tea: true }, null), { fn: false, tea: true }, 'a new item ticked for the tea room only');
+
 /* clash notes per room */
 const t1 = { id: 'ECC-TTTTT1', date: 'A', sess: 'eve', room: 'tea' }, f1 = { id: 'ECC-FFFFF1', date: 'A', sess: 'eve', room: 'fn' };
 eq(G.clashNote_(t1, [t1, f1], []), '', 'tea room and function room requests the same evening do not clash');
@@ -205,6 +231,15 @@ const answer = (fn) => { try { return JSON.stringify(fn()); } catch (e) { return
 });
 
 ['', 'aft', 'eve', 'day'].forEach(a => ['', 'aft', 'eve', 'day'].forEach(b => eq(B.clash(a, b), G.sessionsClash_(a, b), 'browser and server agree on clash ' + a + '/' + b)));
+
+const olds = [null, { cat: 'club', room: false, tea: true }, { cat: 'room', room: false, tea: true }, { cat: 'room', room: true, tea: false },
+  { cat: 'club', room: true, tea: true }, { cat: 'club', room: false, tea: false }];
+const sends = [{ cat: 'club', room: false }, { cat: 'club', room: true }, { cat: 'room', room: true }, { cat: 'room' },
+  { cat: 'club', room: false, tea: false }, { cat: 'room', room: false, tea: true }, { cat: 'club', room: true, tea: true }];
+olds.forEach(o => sends.forEach(x => {
+  const tags = o && { cat: o.cat, room: o.room ? '1' : '0', tea: o.tea ? '1' : '0' };
+  eq(B.roomsForSave(x, o), G.roomsForSave_(x, tags), 'browser and server agree on saving ' + JSON.stringify(x) + ' over ' + JSON.stringify(o));
+}));
 
 console.log(pass + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

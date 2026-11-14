@@ -13,7 +13,7 @@ const HAS_BACKEND = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.te
 /* Demo mode only: load the pretend server. Normal visits never download it. */
 const demoReady = DEMO ? new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = 'demo.js?v=3'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  s.src = 'demo.js?v=4'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
   document.head.append(s);
 }) : null;
 const IN_FRAME = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();

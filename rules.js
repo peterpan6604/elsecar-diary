@@ -107,6 +107,19 @@ function roomsOf(e) {
 /** Given the sessions already taken on a date (['aft'], ['aft','eve']...), can this session be asked for? */
 const canAsk = (taken, sess) => !(taken || []).some(t => clash(t, sess));
 
-window.DiaryRules = { ROOMS, DEFAULT_ROOM, roomName, roomsOf, SESSIONS, TYPES, SHORT_NOTICE_TYPE, MIN_NOTICE, MAX_MONTHS, MAX_GUESTS,
+/** Which rooms a saved committee item takes. old is the stored item ({ cat, room, tea } as true/false) when editing,
+    or null. Same as roomsForSave_ in Code.gs: with no tea value (a page from before the tea room) the stored rooms are kept. */
+function roomsForSave(x, old) {
+  let fn = !!x.room, tea = !!x.tea;
+  if (old && (x.tea === undefined || x.tea === null)) {
+    const had = roomsOf(old);
+    tea = had.indexOf('tea') >= 0;
+    if (x.cat === 'room') fn = had.indexOf('fn') >= 0;
+  }
+  if (x.cat === 'room' && !fn && !tea) fn = true;
+  return { fn, tea };
+}
+
+window.DiaryRules = { ROOMS, DEFAULT_ROOM, roomName, roomsOf, roomsForSave, SESSIONS, TYPES, SHORT_NOTICE_TYPE, MIN_NOTICE, MAX_MONTHS, MAX_GUESTS,
   validate, sessionOf, clash, canAsk, addDays, addMonths, daysBetween, niceDate, isEmail, clean };
 })();
