@@ -3,7 +3,7 @@
  * Stage 1 (plus small stage 2 additions: room tick, phone calendar link): committee sign-in, diary read/add/edit/delete, change log, public read.
  * Stage 3: public function room booking requests, committee approve / decline / cancel, emails, monthly clean-up of contact details.
  * Tea room (14 Nov 2026): a second room, hired separately. Each room has its own free sessions, so both can be booked at once.
- * Payments (14 Nov 2026): £50 a booking, paid by a Stripe Payment Link in the confirmation email. No Stripe keys or webhooks:
+ * Payments (14 Nov 2026): £52 a booking, paid by a Stripe Payment Link in the confirmation email. No Stripe keys or webhooks:
  *   the link lives in the Settings tab ("Payment link") and the committee check payments in Stripe themselves.
  *   Capacities: function room 80, tea room 50. Hirer cancellation refunds: see refundDue_().
  *
@@ -54,9 +54,9 @@ const KEEP_DECLINED_DAYS = 30;    // contact details on a declined request go so
 const QUOTA_RESERVE = 30;         // emails kept back each day for approve, decline and cancel
 const ATTENTION = 'Needs attention';
 /* Payment (decided 14 Nov 2026). The same numbers are in rules.js, HIRE-TERMS.md and hire-terms.html. */
-const HIRE_PRICE = 50;            // pounds, every booking, any room, any session
+const HIRE_PRICE = 52;            // pounds, every booking, any room, any session
 const PAY_WITHIN_DAYS = 7;        // after the confirmation email (or by the day of the event, if that is sooner)
-const REFUND_EARLY = 40;          // cancelled 29 or more days before the event: the £50 fee minus a £10 admin fee
+const REFUND_EARLY = 42;          // cancelled 29 or more days before the event: the £52 fee minus a £10 admin fee
 const REFUND_LATE = 25;           // cancelled 14 to 28 days before
 const REFUND_EARLY_DAYS = 29;     // "more than 28 days before"
 const REFUND_LATE_DAYS = 14;      // "from 28 to 14 days before". 13 days or fewer: no refund
@@ -948,7 +948,7 @@ function paymentText_(link, ref, email, today, eventDate) {
 }
 
 /** Refund due, in pounds, when the hirer cancels. asked is the date the club was told; days are counted from that
- *  date to the event date. 29 days or more ("more than 28 days"): £40. 14 to 28 days: £25. 13 days or fewer: nothing. */
+ *  date to the event date. 29 days or more ("more than 28 days"): £42. 14 to 28 days: £25. 13 days or fewer: nothing. */
 function refundDue_(asked, eventDate) {
   const days = daysBetween_(asked, eventDate);
   return days >= REFUND_EARLY_DAYS ? REFUND_EARLY : days >= REFUND_LATE_DAYS ? REFUND_LATE : 0;

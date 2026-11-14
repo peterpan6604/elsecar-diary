@@ -10,10 +10,10 @@ When anything changes here, change `hire-terms.html` to match (the tests check t
 
 **At a glance**
 
-- **£50** for any booking, either room, any session.
+- **£52** for any booking, either room, any session.
 - Pay after the committee approve your booking, using the card payment link in your confirmation email, **within 7 days**.
 - Function room up to **80 people**. Tea room up to **50 people**.
-- Cancel 29 days or more before: **£40** back. 14 to 28 days before: **£25** back. 13 days or fewer: no refund.
+- Cancel 29 days or more before: **£42** back. 14 to 28 days before: **£25** back. 13 days or fewer: no refund.
 
 By sending a booking request you agree to these terms. "The Club" means Elsecar Sports & Social Club. "You" means the person who makes the booking. "The room" means the function room (also called the bar) or the tea room, whichever you book. These terms apply to both rooms.
 
@@ -33,13 +33,13 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 ## 2. Price and payment
 
-2.1 Room hire costs **£50** for every booking, for either room and for any session (afternoon, evening or whole day).
+2.1 Room hire costs **£52** for every booking, for either room and for any session (afternoon, evening or whole day).
 
 2.2 You do not pay anything when you send a request. When the committee approve your booking, the confirmation email includes a secure card payment link.
 
-2.3 Please pay the £50 **within 7 days** of the confirmation email, or by the day of your event if that is sooner. The email gives the date. If the fee is not paid by then, the Club may cancel the booking and offer the date to someone else.
+2.3 Please pay the £52 **within 7 days** of the confirmation email, or by the day of your event if that is sooner. The email gives the date. If the fee is not paid by then, the Club may cancel the booking and offer the date to someone else.
 
-2.4 There is no separate deposit. The £50 is the full hire fee.
+2.4 There is no separate deposit. The £52 is the full hire fee.
 
 ## 3. Changing your booking
 
@@ -55,9 +55,9 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 4.2 How much we refund depends on how many days before your event you cancel. We count the days from the date you cancel to the date of the event. For example, for an event on Saturday 19 December, cancelling on Friday 20 November is 29 days before.
 
-| When you cancel | Refund of your £50 |
+| When you cancel | Refund of your £52 |
 |---|---|
-| More than 28 days before (29 days or more) | £40 back: the full fee minus a £10 admin fee |
+| More than 28 days before (29 days or more) | £42 back: the full fee minus a £10 admin fee |
 | From 28 days to 14 days before | £25 back |
 | Less than 14 days before (13 days or fewer) | No refund |
 
@@ -69,7 +69,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 5.1 The Club may cancel a booking if it cannot safely or lawfully host the event, for example because of an emergency, a serious problem with the building, or a licensing issue. We will tell you as soon as we can.
 
-5.2 If the Club cancels and it is not your fault, you get a **full refund** of the £50 if you have paid.
+5.2 If the Club cancels and it is not your fault, you get a **full refund** of the £52 if you have paid.
 
 5.3 The Club is not responsible for other costs you have paid, such as entertainers, catering or decorations, as far as the law allows.
 

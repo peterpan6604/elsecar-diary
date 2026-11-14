@@ -22,7 +22,7 @@ const TYPES = ['Birthday party', '18th birthday', '21st birthday', 'Wedding or e
 const SHORT_NOTICE_TYPE = 'Funeral wake';
 const MIN_NOTICE = 7, MAX_MONTHS = 12, MAX_GUESTS = 80; // MAX_GUESTS: the biggest room
 /* Payment and refunds (14 Nov 2026). Same as Code.gs, HIRE-TERMS.md and hire-terms.html. */
-const PRICE = 50, PAY_WITHIN_DAYS = 7, REFUND_EARLY = 40, REFUND_LATE = 25, REFUND_EARLY_DAYS = 29, REFUND_LATE_DAYS = 14;
+const PRICE = 52, PAY_WITHIN_DAYS = 7, REFUND_EARLY = 42, REFUND_LATE = 25, REFUND_EARLY_DAYS = 29, REFUND_LATE_DAYS = 14;
 const PAYMENT_LINK_RE = /^https:\/\/buy\.stripe\.com\/[A-Za-z0-9]+$/;
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

@@ -117,19 +117,19 @@ Do this **after** Pete has said the tea room can go live. Signed in as the club 
 
 Do this **after** Pete has said payments can go live. About 30 minutes. Do the steps in this order.
 
-**What it costs:** Stripe has no monthly fee. It takes a fee from each payment (for a standard UK card about 1.5% plus 20p, so roughly 95p of each £50). If you refund someone, Stripe does not give that fee back. Check the current fees on Stripe's pricing page before you start.
+**What it costs:** Stripe has no monthly fee. It takes a fee from each payment (for a standard UK card about 1.5% plus 20p, so roughly 98p of each £52). If you refund someone, Stripe does not give that fee back. Check the current fees on Stripe's pricing page before you start.
 
-### A. Make the £50 Payment Link in Stripe (signed in to the club's Stripe account)
+### A. Make the £52 Payment Link in Stripe (signed in to the club's Stripe account)
 
 1. At the top of the Stripe Dashboard, make sure **Test mode** is **off**. A test link starts `https://buy.stripe.com/test_` and the diary will ignore it.
 2. Go to **Payment Links** and click **+ New** (or **Create payment link**).
 3. Choose **Products or subscriptions**, then **+ Add a new product**:
    - Name: **Room hire, Elsecar Sports & Social Club**
    - Description: **Hire of the function room or tea room. Fee for one booking.**
-   - Price: a **fixed price** of **£50.00**, **GBP**, **One off** (not recurring). Do not choose "customers choose what to pay".
-4. Leave **Let customers adjust quantity** switched **off**, so it is always one booking at £50.
+   - Price: a **fixed price** of **£52.00**, **GBP**, **One off** (not recurring). Do not choose "customers choose what to pay".
+4. Leave **Let customers adjust quantity** switched **off**, so it is always one booking at £52.
 5. Under **Options** (or **Advanced options**):
-   - **Collect customers' names**: **on**, so you can see who paid.
+   - **Collect customers' names**: leave **off**. Payments are matched by the booking reference and email, not by name.
    - **Require customers to provide a phone number**: optional. Off is fine, because the club already has it from the request.
    - **Allow promotion codes**: **off**.
    - **Collect customers' addresses**: off.
@@ -164,12 +164,12 @@ Do this **after** Pete has said payments can go live. About 30 minutes. Do the s
 
 ### D. Test it
 
-1. On the public page, check the form says **Hire is £50** and the rooms say up to **80** and up to **50** people.
-2. Send yourself a request. The acknowledgement email should mention the £50 and say you pay nothing now.
+1. On the public page, check the form says **Hire is £52** and the rooms say up to **80** and up to **50** people.
+2. Send yourself a request. The acknowledgement email should mention the £52 and say you pay nothing now.
 3. Approve it on the committee page. The confirmation email should have a pay by date, a `buy.stripe.com` link ending in `?client_reference_id=ECC-...`, the hire terms link and the refund rules.
-4. Click the link. Stripe should show **£50.00**. You can stop there, or pay and then refund yourself in Stripe (Stripe keeps its fee, about 95p).
+4. Click the link. Stripe should show **£52.00**. You can stop there, or pay and then refund yourself in Stripe (Stripe keeps its fee, about 98p).
 5. Cancel the booking and choose **The customer asked to cancel**. Check the email gives the right refund for the date.
 
 **If anything goes wrong with the Payment link:** clear the **Payment link** cell. Confirmation emails then say "The club will be in touch about how to pay it", and nothing else changes.
 
-**Bookings approved before this update** got the old email with no payment link. Contact those customers yourself about the £50, or decide not to charge them.
+**Bookings approved before this update** got the old email with no payment link. Contact those customers yourself about the £52, or decide not to charge them.

@@ -7,7 +7,7 @@ Source of truth for the build. Update this file when a decision changes.
 A shared diary for Elsecar Sports & Social Club:
 
 - **Committee and staff** (about 10 people) see and edit everything, using **one shared code** (no individual PINs, no Google logins).
-- **The public** see what's on and which sessions the **function room** and the **tea room** are free, and can **request a booking** for either room. Hire is **£50**, paid by card through a Stripe Payment Link after the committee approve (from 14 Nov 2026).
+- **The public** see what's on and which sessions the **function room** and the **tea room** are free, and can **request a booking** for either room. Hire is **£52**, paid by card through a Stripe Payment Link after the committee approve (from 14 Nov 2026).
 - **Play-Cricket** fixtures for Elsecar CC load in automatically.
 - Embedded on the club website **elsecarcc.co.uk** (a Google Site).
 
@@ -21,8 +21,8 @@ Clickable mock-up: https://claude.ai/artifact/TtnaBV9yYDY44d6ZJBkP4C
 | Access | One shared code. Each person types their first name, which is used only for the change log. Logged in for 30 days. Changing the code logs everyone out |
 | Committee entry point | Separate link saved to phone home screens, plus a small "Committee" link on the website |
 | Public bookings | Function room, and the **tea room** from 14 Nov 2026. **Request and approve** (changed 7 Nov 2026, see "Booking request rules" below). Replaces the instant booking agreed on 1 Nov 2026 |
-| Deposit | None. The £50 hire fee is paid in full after approval (see "Payment and refunds") |
-| Prices | £50 for every booking, any room, any session (Pete, 14 Nov 2026) |
+| Deposit | None. The £52 hire fee is paid in full after approval (see "Payment and refunds") |
+| Prices | £52 for every booking, any room, any session (Pete, 14 Nov 2026) |
 | Booking alerts | Emailed to **all** committee addresses (listed in the Settings tab) |
 | Public label for an approved booking | **"Private party"** (no names or details) |
 | Clash checks | Room bookings only, and each room separately. Cricket fixtures never clash (separate venue) |
@@ -43,13 +43,13 @@ Pete decided on 14 Nov 2026 to add the **tea room** as a second room the public 
 
 Pete decided on 14 Nov 2026. Lean on purpose: **no Stripe API, no keys, no webhooks, no new services.**
 
-- **Price:** £50 for every booking, either room, any session. Nothing is paid at request stage. The form, the request acknowledgement email and the hire terms all say so.
-- **How they pay:** the club creates one **Stripe Payment Link** (fixed £50) in its own Stripe account and pastes it into the Settings row **Payment link**. The approval (confirmation) email gives each customer that link with `?client_reference_id=<booking ref>&prefilled_email=<their email>` added, so the payment can be matched to the booking in Stripe.
+- **Price:** £52 for every booking, either room, any session. Nothing is paid at request stage. The form, the request acknowledgement email and the hire terms all say so.
+- **How they pay:** the club creates one **Stripe Payment Link** (fixed £52) in its own Stripe account and pastes it into the Settings row **Payment link**. The approval (confirmation) email gives each customer that link with `?client_reference_id=<booking ref>&prefilled_email=<their email>` added, so the payment can be matched to the booking in Stripe.
 - **Only a live Stripe link is used:** it must be exactly `https://buy.stripe.com/` followed by letters and numbers. Anything else (a typo, a test mode `test_` link, another website, a link with extra bits on the end) is ignored. Blank or ignored means the email says "The club will be in touch about how to pay it."
 - **When:** within 7 days of the confirmation email, or by the day of the event if that is sooner. The email gives the date. If it is not paid, the club **may** cancel (by hand, using Cancel booking). Nothing cancels automatically.
 - **Checking payment:** the committee look in Stripe (by reference or email). There is no "Paid" marker in the diary. It was left out because it needs a new Bookings column, a new button and a new server action, which is more than "genuinely small".
 - **Hirer cancels** (by replying to an email or contacting the club; there is no customer cancel link). Days are counted from the date the club is told to the event date:
-  - 29 days or more ("more than 28 days"): **£40** back (the £50 minus a £10 admin fee)
+  - 29 days or more ("more than 28 days"): **£42** back (the £52 minus a £10 admin fee)
   - 14 to 28 days: **£25** back
   - 13 days or fewer ("less than 14 days"): no refund
 - **Club cancels** through no fault of the hirer: **full refund**.
@@ -70,7 +70,7 @@ Pete decided on 7 Nov 2026 to use **request and approve** instead of instant boo
 1. On the public page the customer picks a room, date and session and fills in the request form: name, phone, email, room, date, session, type of event, guest numbers and a message.
 2. The request is saved in the Bookings tab as **Pending**. The customer gets an email saying it is a request, not a booking. Every committee address in Settings gets an alert (no contact details in it).
 3. A pending request does **not** block the session on the public page. The committee page shows a clash warning if two requests, or a request and a booking, want the same session in the same room.
-4. **Approve** (committee page): the server checks the session is still free in that room and the guests fit, adds a "Private party (function room)" or "Private party (tea room)" event (room tags, no contact details; the public see only "Private party") and a **bar cover reminder** (Bar & staffing, same session) to the diary, and emails the customer a confirmation with the £50 payment link and pay by date, the hire terms link from Settings (or says the club will send the terms) and a summary of the refund rules.
+4. **Approve** (committee page): the server checks the session is still free in that room and the guests fit, adds a "Private party (function room)" or "Private party (tea room)" event (room tags, no contact details; the public see only "Private party") and a **bar cover reminder** (Bar & staffing, same session) to the diary, and emails the customer a confirmation with the £52 payment link and pay by date, the hire terms link from Settings (or says the club will send the terms) and a summary of the refund rules.
 5. **Decline** (committee page): optional reason, emailed to the customer.
 6. **Cancel** an approved booking (committee page): choose who is cancelling. The club: reason required, email promises a full refund if paid. The customer asked: date they asked required, note optional, email gives the refund due. The booking and its bar cover reminder are removed from the diary.
 
@@ -140,7 +140,7 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 | 2 | Committee view (real page from the mock-up), phone subscription and guide | **Live** on GitHub Pages (`committee.html`, `COMMITTEE-GUIDE.md`) |
 | 3 | Public view, booking **requests** by session, committee approve / decline / cancel, emails, bar cover, spam protection, data clean-up | **Live** |
 | 3b | Tea room as a second hireable room | **Live** |
-| 3c | £50 payment by Stripe Payment Link, refunds, capacities 80 and 50, hire terms page (`hire-terms.html`) | **Built on branch `payments`, tested in demo mode, not yet live.** SETUP.md step 11 |
+| 3c | £52 payment by Stripe Payment Link, refunds, capacities 80 and 50, hire terms page (`hire-terms.html`) | **Built on branch `payments`, tested in demo mode, not yet live.** SETUP.md step 11 |
 | 4 | Play-Cricket daily sync | To do (needs the token) |
 | 5 | Embed on the website, committee test, security check, handover notes | To do |
 
@@ -149,5 +149,5 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 - Play-Cricket API token and site ID: Pete is chasing these.
 - Room capacity: function room **80**, tea room **50** (Pete, 14 Nov 2026).
 - Hire terms: `HIRE-TERMS.md` and the web page `hire-terms.html` (keep the two the same). The committee are happy with them in general. Still to confirm: set up access time, one free date move and its notice, tea room kitchen use, false alarm charge, parking and taxis (marked **[confirm]**). Music ends 11.30pm and guests leave by midnight (Pete, 14 Nov 2026), which matches the evening session ending at midnight.
-- Stripe: the club's Stripe account and the £50 Payment Link (Pete, SETUP.md step 11).
+- Stripe: the club's Stripe account and the £52 Payment Link (Pete, SETUP.md step 11).
 - Committee emails: Pete is dropping the list into `private/` (excluded from git).

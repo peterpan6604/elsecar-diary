@@ -221,13 +221,13 @@ eq(G.payBy_('2026-11-14', '2026-11-15'), '2026-11-15', 'a wake tomorrow: pay by 
 const bk = { name: 'Sarah Kay', room: 'fn', date: '2026-12-19', sess: 'eve', type: 'Birthday party', guests: '60', id: 'ECC-AB12CD', email: 'sarah@example.com' };
 const conf = G.confirmationLines_(bk, LINK, 'https://peterpan6604.github.io/elsecar-diary/hire-terms.html', '2026-11-14').join('\n\n');
 ok(conf.indexOf(LINK + '?client_reference_id=ECC-AB12CD') >= 0, 'confirmation email has the payment link with the reference');
-ok(/£50/.test(conf) && /by Saturday 21 November 2026/.test(conf), 'confirmation email gives the fee and the pay by date');
+ok(/£52/.test(conf) && /by Saturday 21 November 2026/.test(conf), 'confirmation email gives the fee and the pay by date');
 ok(/may cancel the booking/.test(conf), 'confirmation email says the club may cancel if unpaid');
 ok(conf.indexOf('https://peterpan6604.github.io/elsecar-diary/hire-terms.html') >= 0, 'confirmation email has the hire terms link');
-ok(/£40/.test(conf) && /£25/.test(conf) && /29 days or more/.test(conf) && /14 to 28 days/.test(conf) && /13 days or fewer/.test(conf), 'confirmation email sums up the refund rules');
+ok(/£42/.test(conf) && /£25/.test(conf) && /29 days or more/.test(conf) && /14 to 28 days/.test(conf) && /13 days or fewer/.test(conf), 'confirmation email sums up the refund rules');
 ok(!/[\u2013\u2014]/.test(conf), 'no dashes in the confirmation email');
 const blank = G.confirmationLines_(bk, '', '', '2026-11-14').join('\n\n');
-ok(/The hire fee is £50\. The club will be in touch about how to pay it\./.test(blank), 'no payment link: the club will be in touch about payment');
+ok(/The hire fee is £52\. The club will be in touch about how to pay it\./.test(blank), 'no payment link: the club will be in touch about payment');
 ok(!/stripe/i.test(blank), 'no payment link: nothing about Stripe');
 ok(/The club will send you the hire terms/.test(blank), 'no terms link: the club will send the terms');
 const bad = G.confirmationLines_(bk, 'https://evil.example/pay', '', '2026-11-14').join('\n\n');
@@ -236,14 +236,14 @@ ok(/pay it by Tuesday 15 December 2026 \(the day of your event\)/.test(G.payment
 
 /* refunds when the hirer cancels. Event Saturday 19 December 2026 */
 const EV = '2026-12-19';
-eq(G.refundDue_('2026-11-14', EV), 40, '35 days before: £40');
-eq(G.refundDue_('2026-11-20', EV), 40, '29 days before ("more than 28 days"): £40');
+eq(G.refundDue_('2026-11-14', EV), 42, '35 days before: £42');
+eq(G.refundDue_('2026-11-20', EV), 42, '29 days before ("more than 28 days"): £42');
 eq(G.refundDue_('2026-11-21', EV), 25, 'exactly 28 days before: £25');
 eq(G.refundDue_('2026-12-05', EV), 25, 'exactly 14 days before: £25');
 eq(G.refundDue_('2026-12-06', EV), 0, '13 days before ("less than 14 days"): nothing');
 eq(G.refundDue_(EV, EV), 0, 'on the day: nothing');
 eq(G.refundDue_('2026-03-01', '2026-03-29'), 25, '28 days across the clock change is still 28');
-ok(/refund £40 \(the fee minus a £10 admin fee\)/.test(G.hirerRefundText_('2026-11-20', EV)), 'early refund wording names the £10 admin fee');
+ok(/refund £42 \(the fee minus a £10 admin fee\)/.test(G.hirerRefundText_('2026-11-20', EV)), 'early refund wording names the £10 admin fee');
 ok(/29 days before your event/.test(G.hirerRefundText_('2026-11-20', EV)), 'the refund wording says how many days');
 ok(/refund £25\./.test(G.hirerRefundText_('2026-11-21', EV)), '28 days wording: £25');
 ok(/not refunded/.test(G.hirerRefundText_('2026-12-06', EV)) && !/refund £/.test(G.hirerRefundText_('2026-12-06', EV)), '13 days wording: no refund');
@@ -280,7 +280,7 @@ ok(/, 0 days before your event\./.test(G.hirerRefundText_(EV, EV)), 'on the day 
 
 /* the request acknowledgement and the form mention the fee (the email holds only the club's own words) */
 const B0 = (() => { const c = vm.createContext({ window: {} }); vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'rules.js'), 'utf8'), c); return c.window.DiaryRules; })();
-ok(/£50/.test(B0.REQUEST_PRICE_TEXT) && /do not pay anything now/.test(B0.REQUEST_PRICE_TEXT), 'request wording: £50, nothing to pay now');
+ok(/£52/.test(B0.REQUEST_PRICE_TEXT) && /do not pay anything now/.test(B0.REQUEST_PRICE_TEXT), 'request wording: £52, nothing to pay now');
 const codeText = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
 ok(/REQUEST_PRICE_TEXT,\s*\n\s*\['Room: '/.test(codeText), 'the acknowledgement email includes the fee wording');
 ok(/Hire is £' \+ R\.PRICE/.test(fs.readFileSync(path.join(__dirname, '..', 'public.js'), 'utf8')), 'the public form shows the price');
@@ -288,7 +288,7 @@ ok(/Hire is £' \+ R\.PRICE/.test(fs.readFileSync(path.join(__dirname, '..', 'pu
 /* the hire terms say the same as the code */
 const termsMd = fs.readFileSync(path.join(__dirname, '..', 'HIRE-TERMS.md'), 'utf8');
 const termsHtml = fs.readFileSync(path.join(__dirname, '..', 'hire-terms.html'), 'utf8');
-[[/£50/, 'the fee'], [/£40/, 'the early refund'], [/£10 admin fee/, 'the admin fee'], [/£25/, 'the later refund'], [/80 people/, 'the function room limit'],
+[[/£52/, 'the fee'], [/£42/, 'the early refund'], [/£10 admin fee/, 'the admin fee'], [/£25/, 'the later refund'], [/80 people/, 'the function room limit'],
   [/50 people/, 'the tea room limit'], [/within 7 days/, 'pay within 7 days'], [/29 days or more/, 'the 28 day boundary'], [/13 days or fewer/, 'the 14 day boundary'],
   [/full refund/, 'club cancellation refund'], [/Music must finish by (\*\*|<b>)11\.30pm/, 'the music finish time'], [/leave the building by (\*\*|<b>)midnight/, 'the leave time']].forEach(([re, what]) => {
   ok(re.test(termsMd), 'HIRE-TERMS.md states ' + what);
@@ -307,6 +307,13 @@ ok(clauses.length > 50, 'found the numbered clauses in HIRE-TERMS.md (' + clause
 clauses.forEach(c => ok(pageText.indexOf(c) >= 0, 'hire-terms.html has clause ' + c.slice(0, 60)));
 mdLines.filter(l => /^\|/.test(l) && !/^\|---/.test(l)).forEach(l => l.split('|').map(x => x.trim()).filter(Boolean)
   .forEach(cell => ok(pageText.indexOf(cell) >= 0, 'hire-terms.html refund table has ' + cell)));
+
+/* price is £52 (Pete, 14 Nov 2026). It is the hire price: never described as a card, transaction or Stripe fee (UK surcharge ban) */
+eq([B0.PRICE, G.refundDue_('2026-11-20', EV), G.refundDue_('2026-11-21', EV), G.refundDue_('2026-12-06', EV)], [52, 42, 25, 0], 'price £52, refunds £42, £25, nothing');
+ok(/refund it in full/.test(G.clubCancelLines_(bk, 'x').join(' ')) && /£52 hire fee/.test(G.clubCancelLines_(bk, 'x').join(' ')), 'club cancellation refunds the full £52');
+const customerText = [termsMd, termsHtml, codeText, fs.readFileSync(path.join(__dirname, '..', 'rules.js'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', 'public.js'), 'utf8')].join(' ');
+ok(!/card fee|transaction fee|processing fee|booking fee|stripe fee|surcharge/i.test(customerText), 'no part of the price is called a card, transaction or Stripe fee');
+ok(!/£50|£40/.test(customerText), 'no old £50 or £40 prices left');
 
 /* contact clean-up */
 const T2 = '2026-11-07';
@@ -369,7 +376,7 @@ eq([B.ROOMS.fn.max, B.ROOMS.tea.max], [80, 50], 'browser knows the fire limits 8
 ok(G.confirmationLines_(bk, '', '', '2026-11-14').indexOf(B.CANCEL_TERMS_TEXT) >= 0, 'browser and server have the same cancellation summary');
 ok(G.clubCancelLines_(bk, 'x').indexOf(B.CLUB_REFUND_TEXT) >= 0, 'browser and server have the same club refund wording');
 ok(codeText.indexOf("const REQUEST_PRICE_TEXT = 'The hire fee is ' + money_(HIRE_PRICE) + '. You do not pay anything now.") >= 0 &&
-  B.REQUEST_PRICE_TEXT === 'The hire fee is £50. You do not pay anything now. If the committee approve your booking, we will email you a link to pay by card. Please pay within 7 days of that email.',
+  B.REQUEST_PRICE_TEXT === 'The hire fee is £52. You do not pay anything now. If the committee approve your booking, we will email you a link to pay by card. Please pay within 7 days of that email.',
   'request fee wording is the same in both copies');
 [{ cat: 'room' }, { cat: 'room', room: true }, { cat: 'room', tea: true }, { cat: 'room', room: true, tea: true }, { cat: 'club' },
   { cat: 'club', tea: true }, { cat: 'club', room: true }, { cat: 'club', room: true, tea: true }].forEach(e => {

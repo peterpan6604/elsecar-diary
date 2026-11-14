@@ -80,7 +80,7 @@ When a request comes in, every committee member gets an email. It has the room, 
 
 * **Clash** in orange means another request, a booking, or a committee item wants the same room at the same time. Sort that out first. A request for the other room never clashes.
 * **View date** shows that day in the calendar.
-* **Approve** checks the room is still free and the guests fit (up to 80 in the function room, 50 in the tea room). Tea room requests for 51 to 75 guests sent before 14 November 2026 can't be approved: contact the customer to offer the function room or fewer guests (then change Guests in the Bookings tab), or decline. Approve then adds "Private party (function room)" or "Private party (tea room)" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm, with a link to pay the £50 hire fee within 7 days. The public website then shows that session as booked for that room only. The public only ever see "Private party".
+* **Approve** checks the room is still free and the guests fit (up to 80 in the function room, 50 in the tea room). Tea room requests for 51 to 75 guests sent before 14 November 2026 can't be approved: contact the customer to offer the function room or fewer guests (then change Guests in the Bookings tab), or decline. Approve then adds "Private party (function room)" or "Private party (tea room)" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm, with a link to pay the £52 hire fee within 7 days. The public website then shows that session as booked for that room only. The public only ever see "Private party".
 * **Decline** emails the customer to say the club can't take it. You can add a reason. It goes in the email, so keep it polite.
 * **Date passed** means nobody replied before the date. Only Decline is offered, so the customer still gets an answer.
 * A red **Needs attention: emails not sent** box means an email didn't go. Phone or email that customer yourself.
@@ -99,7 +99,7 @@ A request does not block the date on the website. Two people can ask for the sam
 
 ## 8. Payments and refunds
 
-Every booking costs **£50**, whichever room and session. Nobody pays when they send a request. When you approve, the confirmation email gives the customer a Stripe payment link with their booking reference on it. They should pay within 7 days (or by the day of the event if that is sooner). The email tells them the date.
+Every booking costs **£52**, whichever room and session. Nobody pays when they send a request. When you approve, the confirmation email gives the customer a Stripe payment link with their booking reference on it. They should pay within 7 days (or by the day of the event if that is sooner). The email tells them the date.
 
 **Check who has paid** (signed in to the club's Stripe account, on the website or the Stripe app):
 1. Go to **Payments**.
@@ -116,14 +116,14 @@ If someone has not paid by their date, phone or email them first. If you decide 
 
 | Who cancels | Refund if they have paid |
 |---|---|
-| The club (not the customer's fault) | £50, the full fee |
-| Customer, 29 days or more before the event | £40 (the fee minus a £10 admin fee) |
+| The club (not the customer's fault) | £52, the full fee |
+| Customer, 29 days or more before the event | £42 (the fee minus a £10 admin fee) |
 | Customer, 14 to 28 days before | £25 |
 | Customer, 13 days or fewer before | Nothing |
 
 Days are counted from the date the customer told the club to the date of the event. For an event on Saturday 19 December, Friday 20 November is 29 days before. The amount is also written in the **Reason** column of the Bookings tab.
 
-Stripe keeps its small fee (about 95p) on a refund. Refunds take 5 to 10 working days to reach the customer.
+Stripe keeps its small fee (about 98p) on a refund. Refunds take 5 to 10 working days to reach the customer.
 
 Bookings approved before payments started got an email with no payment link. Sort those out with the customer yourselves.
 
