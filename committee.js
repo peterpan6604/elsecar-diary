@@ -22,14 +22,14 @@ if (window.self !== window.top && !DEMO) {
 /* Demo mode only: load the pretend server. Normal visits never download it. */
 const demoReady = DEMO ? new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = 'demo.js?v=2'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  s.src = 'demo.js?v=3'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
   document.head.append(s);
 }) : null;
 
 const HAS_BACKEND = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(CFG.BACKEND_URL || '');
 
 const CATS = {
-  room:    { label: 'Function room hire', c: 'var(--c-room)' },
+  room:    { label: 'Room hire',          c: 'var(--c-room)' },
   club:    { label: 'Club events',        c: 'var(--c-club)' },
   cricket: { label: 'Cricket',            c: 'var(--c-cricket)' },
   meet:    { label: 'Committee',          c: 'var(--c-meet)' },
@@ -79,7 +79,7 @@ const S = {
   y: now.getFullYear(), m: now.getMonth(), sel: TODAY,
   off: new Set(),         // categories hidden by the filter chips
   events: [], log: [], feed: '', loadErr: '', loading: false,
-  pending: [], upcoming: [], outbox: [], attention: [], bkLoaded: false, bkErr: '' // function room requests (stage 3)
+  pending: [], upcoming: [], outbox: [], attention: [], bkLoaded: false, bkErr: '' // room hire requests (stage 3)
 };
 let reqId = 0;
 
@@ -287,7 +287,7 @@ function itemEl(e) {
   const tags = [];
   if (isFixture(e)) tags.push(h('span', { class: 'tag pc' }, 'Play-Cricket'));
   if (e.bk) tags.push(h('span', { class: 'tag' }, 'Online booking'));
-  if (e.room && e.cat !== 'room') tags.push(h('span', { class: 'tag' }, 'Uses room'));
+  roomsOf(e).forEach(r => tags.push(h('span', { class: 'tag' }, ROOM_NAME[r])));
   if (!e.pub && e.cat !== 'room' && !isFixture(e)) tags.push(h('span', { class: 'tag' }, 'Committee only'));
   const meta = timeText(e) + (e.by ? ' · added by ' + e.by : '');
   return h('li', { class: 'item' },
@@ -326,9 +326,12 @@ function renderSide() {
   fill($('side'), cards);
 }
 
-/* ---------- function room requests and bookings (stage 3) ----------
+/* ---------- room hire requests and bookings (stage 3, tea room added 14 Nov 2026) ----------
    Contact details only ever appear here, behind sign-in. They are never put in the calendar. */
 const SESS_NAME = { aft: 'Afternoon (12pm to 5pm)', eve: 'Evening (6pm to midnight)', day: 'Whole day (12pm to midnight)' };
+const ROOM_NAME = { fn: 'Function room', tea: 'Tea room' };
+const roomOfBk = b => ROOM_NAME[b.room] ? b.room : 'fn'; // older bookings have no room: the function room
+const roomTag = b => h('span', { class: 'tag room-' + roomOfBk(b) }, ROOM_NAME[roomOfBk(b)]);
 const bkMeta = b => short(b.date) + ' · ' + (SESS_NAME[b.sess] || '') + ' · ' + b.guests + ' guests';
 
 function contactEl(b) {
@@ -350,10 +353,10 @@ function pendingCard() {
   return h('div', { class: 'card', id: 'needsApproval' },
     h('div', { class: 'row spread' }, h('h3', { style: 'margin:0' }, 'Needs approval'),
       S.pending.length ? h('span', { class: 'tag pend' }, S.pending.length + ' waiting') : null),
-    h('p', { class: 'sub', style: 'margin-top:4px' }, 'Function room requests from the website. A request does not block the date until you approve it.'),
+    h('p', { class: 'sub', style: 'margin-top:4px' }, 'Function room and tea room requests from the website. A request does not block the date until you approve it.'),
     attentionEl(),
     bkCardBody(S.pending, 'Nothing waiting.', b => h('div', { class: 'req' + (b.clash || b.past ? ' clash' : '') },
-      h('div', { class: 'ttl' }, b.type, h('span', { class: 'ref' }, b.id)),
+      h('div', { class: 'ttl' }, roomTag(b), ' ', b.type, h('span', { class: 'ref' }, b.id)),
       h('div', { class: 'meta' }, bkMeta(b)),
       b.past ? h('p', { class: 'warn', role: 'note' }, h('b', null, 'Date passed. '), 'Nobody replied in time. Decline it so the customer gets an answer.') : null,
       b.clash ? h('p', { class: 'warn', role: 'note' }, h('b', null, 'Clash: '), b.clash) : null,
@@ -377,10 +380,10 @@ function attentionEl() {
 
 function upcomingCard() {
   return h('div', { class: 'card' },
-    h('h3', null, 'Function room bookings'),
-    h('p', { class: 'sub' }, 'Approved online bookings coming up. Each one has a bar cover reminder in the diary.'),
+    h('h3', null, 'Room bookings'),
+    h('p', { class: 'sub' }, 'Approved online bookings for the function room and tea room coming up. Each one has a bar cover reminder in the diary.'),
     bkCardBody(S.upcoming, 'No online bookings coming up.', b => h('div', { class: 'req' },
-      h('div', { class: 'ttl' }, b.type, h('span', { class: 'ref' }, b.id)),
+      h('div', { class: 'ttl' }, roomTag(b), ' ', b.type, h('span', { class: 'ref' }, b.id)),
       h('div', { class: 'meta' }, bkMeta(b)),
       contactEl(b),
       b.by ? h('div', { class: 'meta' }, 'Approved by ' + b.by) : null,
@@ -398,13 +401,14 @@ function outboxCard() {
 }
 
 function bookingAction(b, kind) {
+  const room = ROOM_NAME[roomOfBk(b)].toLowerCase();
   const C = {
     approve: { title: 'Approve this booking?', go: 'Approve booking', cls: 'btn', busy: 'Approving…', done: 'Approved',
-      lines: ['Adds "Private party" to the diary for that session. The public see it as booked.', 'Adds a bar cover reminder to the diary.', 'Emails ' + b.name + ' to confirm the booking.'] },
+      lines: ['Adds "Private party (' + room + ')" to the diary for that session. The public see the ' + room + ' as booked. The other room stays free.', 'Adds a bar cover reminder to the diary.', 'Emails ' + b.name + ' to confirm the booking.'] },
     decline: { title: 'Decline this request?', go: 'Decline request', cls: 'btn danger', busy: 'Declining…', done: 'Declined',
       label: 'Reason (optional). It goes in the email to the customer.', lines: ['Emails ' + b.name + ' to say the club cannot take the booking.'] },
     cancel: { title: 'Cancel this booking?', go: 'Cancel booking', cls: 'btn danger', busy: 'Cancelling…', done: 'Cancelled', required: true,
-      label: 'Reason. It goes in the email to the customer.', lines: ['Removes the booking and its bar cover reminder from the diary.', 'Emails ' + b.name + ' with your reason.'] }
+      label: 'Reason. It goes in the email to the customer.', lines: ['Removes the ' + room + ' booking and its bar cover reminder from the diary.', 'Emails ' + b.name + ' with your reason.'] }
   }[kind];
   const reason = C.label ? h('textarea', { id: 'bkReason', maxlength: '500', placeholder: kind === 'cancel' ? 'e.g. The room is needed for essential repairs.' : '' }) : null;
   const err = h('p', { class: 'err', role: 'alert', hidden: true });
@@ -422,7 +426,7 @@ function bookingAction(b, kind) {
     } catch (e) { if (e.auth) return; setErr(err, e.message); go.disabled = false; back.disabled = false; go.textContent = C.go; }
   });
   modal(C.title,
-    h('div', { class: 'summary' }, h('b', null, b.type + ' · ' + b.id), h('span', null, nice(b.date) + ', ' + (SESS_NAME[b.sess] || '')), h('span', null, b.guests + ' guests · ' + b.name)),
+    h('div', { class: 'summary' }, h('b', null, b.type + ' · ' + b.id), h('span', null, ROOM_NAME[roomOfBk(b)] + ', ' + nice(b.date) + ', ' + (SESS_NAME[b.sess] || '')), h('span', null, b.guests + ' guests · ' + b.name)),
     b.clash && kind === 'approve' ? h('p', { class: 'warn' }, h('b', null, 'Clash: '), b.clash) : null,
     h('ul', { class: 'does' }, C.lines.map(l => h('li', null, l))),
     reason ? h('div', { class: 'f' }, h('label', { for: 'bkReason' }, C.label), reason) : null,
@@ -462,16 +466,16 @@ function toast(msg) { fill($('toastRoot'), h('div', { class: 'toast', role: 'sta
 /* ---------- add / edit / delete ---------- */
 // Which bookable session an item takes ('aft', 'eve', 'day' or '' for none). The rule lives in rules.js, shared with the server's copy.
 const sessionOf = e => window.DiaryRules.sessionOf(e.allDay ? '' : e.start, e.end);
-const usesRoom = e => e.cat === 'room' || e.room;
-function clashWith(data, editingId) {
-  // A quick check against what is on screen. The server checks again against approved bookings.
+const roomsOf = e => window.DiaryRules.roomsOf(e); // 'fn', 'tea' or both
+function clashWith(data, editingId, room) {
+  // A quick check of one room against what is on screen. The server checks again against approved bookings.
   const mine = sessionOf(data);
-  return S.events.find(e => e.id !== editingId && e.date === data.date && usesRoom(e) && window.DiaryRules.clash(sessionOf(e), mine)) || null;
+  return S.events.find(e => e.id !== editingId && e.date === data.date && roomsOf(e).indexOf(room) >= 0 && window.DiaryRules.clash(sessionOf(e), mine)) || null;
 }
 
 function openEditor(ev) {
   const isNew = !ev;
-  const e = ev || { date: S.view === 'month' ? S.sel : TODAY, start: '19:00', end: '21:00', title: '', cat: 'club', pub: false, notes: '', room: false };
+  const e = ev || { date: S.view === 'month' ? S.sel : TODAY, start: '19:00', end: '21:00', title: '', cat: 'club', pub: false, notes: '', room: false, tea: false };
   const isBooking = !!e.bk; // an approved online booking: change it with Cancel in the bookings card
   const readOnly = isFixture(e) || isBooking;
   const dis = readOnly;
@@ -482,13 +486,15 @@ function openEditor(ev) {
   const start = h('input', { id: 'eStart', type: 'time', value: e.start, disabled: dis });
   const end = h('input', { id: 'eEnd', type: 'time', value: e.end, disabled: dis });
   const notes = h('textarea', { id: 'eNotes', maxlength: '1000', disabled: dis }, e.notes || '');
-  const room = h('input', { type: 'checkbox', id: 'eRoom', checked: !!(e.room || e.cat === 'room'), disabled: dis });
+  const used = roomsOf(e);
+  const room = h('input', { type: 'checkbox', id: 'eRoom', checked: used.indexOf('fn') >= 0, disabled: dis });
+  const tea = h('input', { type: 'checkbox', id: 'eTea', checked: used.indexOf('tea') >= 0, disabled: dis });
   const pub = h('input', { type: 'checkbox', id: 'ePub', checked: !!e.pub, disabled: dis });
   const err = h('p', { class: 'err full', role: 'alert', hidden: true });
-  const lockRoom = () => { // room hire always uses the room and always shows publicly, as "Private party"
+  const lockRoom = () => { // room hire always shows publicly, as "Private party", and must say which room
     const r = cat.value === 'room';
-    if (r) { room.checked = true; pub.checked = true; }
-    if (!readOnly) { room.disabled = r; pub.disabled = r; }
+    if (r) { pub.checked = true; if (!room.checked && !tea.checked) room.checked = true; }
+    if (!readOnly) pub.disabled = r;
   };
   cat.addEventListener('change', lockRoom); lockRoom();
 
@@ -514,6 +520,7 @@ function openEditor(ev) {
     h('div', { class: 'f' }, h('label', { for: 'eEnd' }, 'Finish'), end),
     h('div', { class: 'f full' }, h('label', { for: 'eNotes' }, 'Notes for the committee'), notes),
     h('label', { class: 'check full' }, room, 'Uses the function room (stops the public booking it for those times)'),
+    h('label', { class: 'check full' }, tea, 'Uses the tea room (stops the public booking it for those times)'),
     h('label', { class: 'check full' }, pub, 'Show on the public website (room hire always shows as "Private party" with no names)'),
     err,
     h('div', { class: 'row full' }, readOnly ? h('button', { class: 'btn', type: 'button', onclick: closeModal }, 'Close') : buttons));
@@ -522,15 +529,16 @@ function openEditor(ev) {
     x.preventDefault();
     if (readOnly) return;
     const data = { title: title.value.trim(), cat: cat.value, date: date.value, start: start.value, end: end.value,
-      notes: notes.value.trim(), pub: pub.checked, room: room.checked };
+      notes: notes.value.trim(), pub: pub.checked, room: room.checked, tea: tea.checked };
     if (ev) data.id = ev.id;
     const bad = !data.title ? 'Give it a name so people know what it is.'
       : !data.date ? 'Choose a date.'
-      : (!data.start || !data.end) ? 'Add a start and finish time.' : '';
+      : (!data.start || !data.end) ? 'Add a start and finish time.'
+      : (data.cat === 'room' && !data.room && !data.tea) ? 'Tick which room is being hired.' : '';
     if (bad) return setErr(err, bad);
-    if (data.room) {
-      const c = clashWith(data, ev && ev.id);
-      if (c) return setErr(err, 'The function room is already in use that ' + SESS_LABEL[sessionOf(c)] + ' on ' + nice(data.date) + ' (' + c.title + '). Check the day first.');
+    for (const r of roomsOf(data)) {
+      const c = clashWith(data, ev && ev.id, r);
+      if (c) return setErr(err, 'The ' + ROOM_NAME[r].toLowerCase() + ' is already in use that ' + SESS_LABEL[sessionOf(c)] + ' on ' + nice(data.date) + ' (' + c.title + '). Check the day first.');
     }
     setErr(err, ''); submit.disabled = true; submit.textContent = 'Saving…';
     try {
@@ -541,7 +549,7 @@ function openEditor(ev) {
   });
 
   modal(isNew ? 'Add to the diary' : (isBooking ? 'Online booking' : readOnly ? 'Fixture' : 'Edit diary item'),
-    isBooking ? h('p', { class: 'hint' }, 'This is an approved online booking. The contact details are in the Function room bookings card. To cancel it, use Cancel booking there so the customer is emailed.')
+    isBooking ? h('p', { class: 'hint' }, 'This is an approved online booking. The contact details are in the Room bookings card. To cancel it, use Cancel booking there so the customer is emailed.')
       : readOnly ? h('p', { class: 'hint' }, 'This fixture comes from Play-Cricket. Change it there and the diary updates the next morning.') : null,
     form);
 }

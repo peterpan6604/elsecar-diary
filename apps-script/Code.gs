@@ -2,6 +2,7 @@
  * Elsecar Club Diary: Apps Script backend
  * Stage 1 (plus small stage 2 additions: room tick, phone calendar link): committee sign-in, diary read/add/edit/delete, change log, public read.
  * Stage 3: public function room booking requests, committee approve / decline / cancel, emails, monthly clean-up of contact details.
+ * Tea room (14 Nov 2026): a second room, hired separately. Each room has its own free sessions, so both can be booked at once.
  *
  * Runs on the elsecarsportsandsocialclub1854 Google account.
  * Private settings live in Project Settings → Script Properties:
@@ -19,7 +20,14 @@ const GLOBAL_FAIL_LIMIT = 30;  // wrong codes club-wide before lockout
 const LOCK_MINUTES = 15;
 const PUBLIC_CACHE_SECONDS = 300;
 
-/* Stage 3: function room booking requests */
+/* Stage 3: room booking requests */
+// The rooms the public can hire. Each has its own availability. A booking or diary item with no room recorded
+// (everything made before the tea room was added) counts as the function room.
+const ROOMS = {
+  fn:  { label: 'Function room', setting: 'Room capacity' },
+  tea: { label: 'Tea room',      setting: 'Tea room capacity' }
+};
+const DEFAULT_ROOM = 'fn';
 const SESSIONS = {
   aft: { label: 'Afternoon', time: '12pm to 5pm',      start: '12:00', end: '17:00' },
   eve: { label: 'Evening',   time: '6pm to midnight',  start: '18:00', end: '00:00' },
@@ -30,7 +38,7 @@ const EVENT_TYPES = ['Birthday party', '18th birthday', '21st birthday', 'Weddin
 const SHORT_NOTICE_TYPE = 'Funeral wake';
 const MIN_NOTICE_DAYS = 7;
 const MAX_AHEAD_MONTHS = 12;
-const MAX_GUESTS = 75;            // fire limit. The Settings tab can only lower it.
+const MAX_GUESTS = 75;            // fire limit for each room. The Settings tab can only lower it.
 const REQ_PER_DEVICE = 3;         // requests per device every 6 hours
 const REQ_CLUB_WIDE = 20;         // requests across the whole club every 6 hours
 const REQ_WINDOW_SECONDS = 21600; // 6 hours, the longest CacheService keeps anything
@@ -41,12 +49,14 @@ const QUOTA_RESERVE = 30;         // emails kept back each day for approve, decl
 const ATTENTION = 'Needs attention';
 const REMOVED = '(removed)';
 // Bookings tab columns. 1 to 15 were created by setup() in stage 1. 16 to 18 are added by setupStage3().
+// 19 (Room) came with the tea room. It is added automatically the first time it is needed, or by setupStage3().
+// A blank Room means the function room, so every older row keeps working.
 const BK = { id: 1, received: 2, status: 3, date: 4, start: 5, end: 6, type: 7, guests: 8, name: 9, email: 10,
-  phone: 11, notes: 12, by: 13, at: 14, cal: 15, sess: 16, bar: 17, reason: 18 };
-const BK_COLS = 18;
+  phone: 11, notes: 12, by: 13, at: 14, cal: 15, sess: 16, bar: 17, reason: 18, room: 19 };
+const BK_COLS = 19;
 const BK_HEADERS = ['Booking ID', 'Received', 'Status', 'Date', 'Start', 'End', 'Event type', 'Guests',
   'Name', 'Email', 'Phone', 'Notes', 'Decided by', 'Decided at', 'Calendar event ID',
-  'Session', 'Bar cover event ID', 'Reason'];
+  'Session', 'Bar cover event ID', 'Reason', 'Room'];
 
 /* ============ One-off setup (run from the editor) ============ */
 
@@ -101,9 +111,10 @@ function testSelf() {
 }
 
 /**
- * Stage 3 upgrade. Safe to run more than once.
- * Adds the three new Bookings columns (keeps the 15 existing ones and any rows), adds the
- * "Committee page link" setting, and creates the monthly clean-up trigger.
+ * Stage 3 and tea room upgrade. Safe to run more than once.
+ * Adds any missing Bookings columns at the end (Session, Bar cover event ID, Reason, Room), keeping every
+ * existing column and row. Adds the "Committee page link", "Privacy contact" and "Tea room capacity"
+ * settings if they are missing, and creates the monthly clean-up trigger.
  */
 function setupStage3() {
   const sh = sheet_('Bookings');
@@ -121,10 +132,13 @@ function setupStage3() {
   if (names.indexOf('Privacy contact') < 0) {
     set.appendRow(['Privacy contact', '', 'Email or phone for questions about personal data. Shown on the booking form. Blank means "contact the club"']);
   }
+  if (names.indexOf('Tea room capacity') < 0) {
+    set.appendRow(['Tea room capacity', '75', 'Most guests in the tea room. Can be lowered, never raised above 75']);
+  }
 
   const has = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'purgeOldContacts');
   if (!has) ScriptApp.newTrigger('purgeOldContacts').timeBased().onMonthDay(1).atHour(3).create();
-  Logger.log('Stage 3 ready. Bookings columns: ' + BK_COLS + '. Monthly clean-up trigger: ' + (has ? 'already there' : 'created') + '.');
+  Logger.log('Stage 3 and tea room ready. Bookings columns: ' + BK_COLS + '. Monthly clean-up trigger: ' + (has ? 'already there' : 'created') + '.');
   Logger.log('Emails left today: ' + MailApp.getRemainingDailyQuota());
 }
 
@@ -237,16 +251,20 @@ function publicEvents_(from, to) {
   const uses = [];
   cal_().getEvents(range[0], range[1]).forEach(ev => {
     const x = shape_(ev, false);
+    const rooms = roomsOf_(ev, x);
     if (x.cat === 'room') {
-      events.push({ date: x.date, start: x.start, end: x.end, allDay: x.allDay, cat: 'room', title: 'Private party' });
+      events.push({ date: x.date, start: x.start, end: x.end, allDay: x.allDay, cat: 'room', title: 'Private party', rooms: rooms });
     } else if (ev.getTag('pub') === '1') {
       events.push({ date: x.date, start: x.start, end: x.end, allDay: x.allDay, cat: x.cat, title: x.title });
     }
-    // Room hire, and any committee item ticked "Uses the function room" (public or not), takes its session.
-    // Pending requests are NOT counted: only approved bookings block a session publicly.
-    if (usesRoom_(ev, x)) uses.push({ date: x.date, sess: sessionOfTimes_(x.start, x.end) });
+    // Room hire, and any committee item ticked "Uses the function room" or "Uses the tea room" (public or not),
+    // takes its session in that room. Pending requests are NOT counted: only approved bookings block a session publicly.
+    const sess = sessionOfTimes_(x.start, x.end);
+    rooms.forEach(r => uses.push({ date: x.date, sess: sess, room: r }));
   });
-  const out = { ok: true, events: events, roomTaken: takenSessions_(uses), rules: publicRules_() };
+  const taken = takenByRoom_(uses);
+  // roomTaken is the function room on its own, for a page loaded before the tea room was added
+  const out = { ok: true, events: events, taken: taken, roomTaken: taken[DEFAULT_ROOM], rules: publicRules_() };
   cache.put(key, JSON.stringify(out), PUBLIC_CACHE_SECONDS);
   return out;
 }
@@ -266,6 +284,10 @@ function saveEvent_(x, user) {
   if (!isTime_(x.start) || !isTime_(x.end)) fail_('Add a start and finish time.');
   const notes = cleanStr_(x.notes, 1000, true);
   const pub = x.cat === 'room' ? true : !!x.pub; // room hire always shows publicly, as "Private party"
+  // Which rooms it takes. Room hire with neither room ticked (sent by a page from before the tea room) is the function room.
+  const useTea = !!x.tea;
+  const useFn = !!x.room || (x.cat === 'room' && !useTea);
+  const rooms = (useFn ? ['fn'] : []).concat(useTea ? ['tea'] : []);
 
   const start = toDate_(x.date, x.start);
   const end = toDate_(x.date, x.end);
@@ -281,14 +303,17 @@ function saveEvent_(x, user) {
       if (ev.getTag('src') === 'play-cricket') fail_('Fixtures come from Play-Cricket. Change them there.');
       if (ev.getTag('bk')) fail_(BOOKING_LOCKED);
     }
-    // A committee item that uses the room must not land on a customer's approved booking
-    if (x.cat === 'room' || x.room) {
+    // A committee item that uses a room must not land on a customer's approved booking of that room
+    if (rooms.length) {
       const mine = sessionOfTimes_(x.start, x.end);
-      const hit = bookingEventsOn_(x.date).find(u => sessionsClash_(u.sess, mine));
-      if (hit) {
-        fail_('A customer has booked the function room that ' + SESSIONS[hit.sess].label.toLowerCase() + ' (' + hit.ref +
-          '). Untick "Uses the function room", or cancel that booking first.');
-      }
+      const booked = bookingEventsOn_(x.date);
+      rooms.forEach(r => {
+        const hit = booked.find(u => u.rooms.indexOf(r) >= 0 && sessionsClash_(u.sess, mine));
+        if (hit) {
+          fail_('A customer has booked the ' + roomName_(r) + ' that ' + SESSIONS[hit.sess].label.toLowerCase() + ' (' + hit.ref +
+            '). Untick "Uses the ' + roomName_(r) + '", or cancel that booking first.');
+        }
+      });
     }
     if (x.id) {
       ev.setTitle(title);
@@ -299,7 +324,8 @@ function saveEvent_(x, user) {
     }
     ev.setTag('cat', x.cat);
     ev.setTag('pub', pub ? '1' : '0');
-    ev.setTag('room', (x.cat === 'room' || x.room) ? '1' : '0'); // "Uses the function room" tick
+    ev.setTag('room', useFn ? '1' : '0');  // "Uses the function room" tick
+    ev.setTag('tea', useTea ? '1' : '0');  // "Uses the tea room" tick
     ev.setTag('by', user.name);
     bumpCache_();
     log_(user.name, x.id ? 'Edited' : 'Added', title, x.date);
@@ -342,18 +368,21 @@ function shape_(ev, full) {
   if (full) {
     o.notes = ev.getDescription() || '';
     o.pub = ev.getTag('pub') === '1';
-    o.room = o.cat === 'room' || ev.getTag('room') === '1';
+    const rooms = roomsOf_(ev, o);
+    o.room = rooms.indexOf('fn') >= 0;  // uses the function room
+    o.tea = rooms.indexOf('tea') >= 0;  // uses the tea room
     o.by = ev.getTag('by') || '';
     o.bk = ev.getTag('bk') || ''; // set on an approved online booking's "Private party" event
   }
   return o;
 }
 
-const BOOKING_LOCKED = 'This is an online booking. To cancel it, use Cancel in the Function room bookings card so the customer is told.';
+const BOOKING_LOCKED = 'This is an online booking. To cancel it, use Cancel in the Room bookings card so the customer is told.';
 
-function usesRoom_(ev, x) { return x.cat === 'room' || ev.getTag('room') === '1'; }
+/** The rooms a calendar event takes, from its tags. */
+function roomsOf_(ev, x) { return roomsOfTags_(x.cat, ev.getTag('room'), ev.getTag('tea')); }
 
-/* ============ Function room booking requests (stage 3) ============ */
+/* ============ Room booking requests (stage 3, tea room added 14 Nov 2026) ============ */
 // Request and approve (decided 7 Nov 2026). A request is saved as Pending and never blocks a session publicly.
 // Only an approved booking (a "Private party" calendar event) takes the session.
 // Customer contact details live only in the Bookings tab, never in the calendar or the committee alert email.
@@ -377,25 +406,26 @@ function requestBooking_(b) {
 
   const set = settings_();
   const today = todayIso_();
-  const r = validateRequest_(b, today, capacity_(set));
+  const r = validateRequest_(b, today, capacities_(set));
+  const room = roomName_(r.room);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   let ref, clash;
   try {
-    if (!isFreeIn_(roomUsesOn_(r.date), r.date, r.sess)) {
-      fail_('Sorry, the function room is already booked that ' + SESSIONS[r.sess].label.toLowerCase() + '. Please choose another date or session.');
+    if (!isFreeIn_(roomUsesOn_(r.date), r.date, r.sess, r.room)) {
+      fail_('Sorry, the ' + room + ' is already booked that ' + SESSIONS[r.sess].label.toLowerCase() + '. Please choose another date, session or room.');
     }
     const rows = bookingRows_();
     const mine = rows.filter(x => x.status === 'Pending' && x.date >= today && x.email.toLowerCase() === r.email.toLowerCase());
     if (mine.length >= PENDING_PER_EMAIL) fail_('You already have requests waiting for the committee. They will be in touch soon.');
-    const rivals = rows.filter(x => x.status === 'Pending' && x.date === r.date && sessionsClash_(x.sess, r.sess));
+    const rivals = rows.filter(x => x.status === 'Pending' && x.room === r.room && x.date === r.date && sessionsClash_(x.sess, r.sess));
     clash = rivals.length ? 'Another request is already waiting for this session.' : '';
 
     ref = newRef_();
     const s = SESSIONS[r.sess];
     appendBooking_({ id: ref, received: nowText_(), status: 'Pending', date: r.date, start: s.start, end: s.end,
-      type: r.type, guests: String(r.guests), name: r.name, email: r.email, phone: r.phone, notes: r.message, sess: r.sess });
+      type: r.type, guests: String(r.guests), name: r.name, email: r.email, phone: r.phone, notes: r.message, sess: r.sess, room: r.room });
   } finally {
     lock.releaseLock();
   }
@@ -405,20 +435,20 @@ function requestBooking_(b) {
   // Emails: 1 to the customer, 1 alert to the committee (counts once per committee address against the daily quota).
   // The acknowledgement goes to an address nobody has checked yet, so it holds only the club's own words:
   // no name or anything else the visitor typed.
-  const sent = sendMail_(r.email, 'Your function room request (' + ref + ')', [
+  const sent = sendMail_(r.email, 'Your ' + room + ' request (' + ref + ')', [
     'Hello,',
-    'Thank you for asking to hire the function room at ' + CLUB_NAME + '.',
+    'Thank you for asking to hire the ' + room + ' at ' + CLUB_NAME + '.',
     'This is a request, not a confirmed booking. The committee will look at it and be in touch. Please do not make firm plans until you hear from us.',
-    ['Date: ' + niceDate_(r.date), 'Session: ' + sessionText_(r.sess), 'Reference: ' + ref].join('\n'),
+    ['Room: ' + ROOMS[r.room].label, 'Date: ' + niceDate_(r.date), 'Session: ' + sessionText_(r.sess), 'Reference: ' + ref].join('\n'),
     'If you did not send this request, you can ignore this email.',
     CLUB_NAME
   ], set, 'Acknowledgement to customer (' + ref + ')', r.date);
   const committee = committeeEmails_(set);
   if (committee.length) {
     const link = committeeUrl_(set);
-    sendMail_(committee.join(','), 'Function room request: ' + niceDate_(r.date) + ', ' + SESSIONS[r.sess].label.toLowerCase() + ' (' + ref + ')', [
-      'A new function room request has come in from the website.',
-      detailLines_(r.date, r.sess, r.type, r.guests, ref),
+    sendMail_(committee.join(','), ROOMS[r.room].label + ' request: ' + niceDate_(r.date) + ', ' + SESSIONS[r.sess].label.toLowerCase() + ' (' + ref + ')', [
+      'A new ' + room + ' request has come in from the website.',
+      detailLines_(r.room, r.date, r.sess, r.type, r.guests, ref),
       clash ? 'Clash: ' + clash : '',
       'Sign in to the club diary to see the contact details, then approve or decline it.' + (link ? '\n' + link : ''),
       'It is not a booking until a committee member approves it.'
@@ -444,7 +474,7 @@ function listBookings_() {
     z.setDate(z.getDate() + 1);
     cal_().getEvents(a, z).forEach(ev => {
       const x = shape_(ev, false);
-      if (usesRoom_(ev, x)) uses.push({ date: x.date, sess: sessionOfTimes_(x.start, x.end), title: x.cat === 'room' ? 'a booking' : x.title });
+      roomsOf_(ev, x).forEach(r => uses.push({ date: x.date, sess: sessionOfTimes_(x.start, x.end), room: r, title: x.cat === 'room' ? 'a booking' : x.title }));
     });
   }
   return {
@@ -464,9 +494,9 @@ function approveBooking_(id, user) {
     b = findBooking_(rows, id);
     if (b.status !== 'Pending') fail_('This request has already been ' + b.status.toLowerCase() + '.');
     if (b.date < todayIso_()) fail_('The date of this request has passed. Decline it instead.');
-    const busy = 'The function room is no longer free that ' + SESSIONS[b.sess].label.toLowerCase() + '. Decline this request, or cancel the other booking first.';
-    if (!isFreeIn_(roomUsesOn_(b.date), b.date, b.sess)) fail_(busy);
-    if (rows.some(x => x.status === 'Approved' && x.id !== b.id && x.date === b.date && sessionsClash_(x.sess, b.sess))) fail_(busy);
+    const busy = 'The ' + roomName_(b.room) + ' is no longer free that ' + SESSIONS[b.sess].label.toLowerCase() + '. Decline this request, or cancel the other booking first.';
+    if (!isFreeIn_(roomUsesOn_(b.date), b.date, b.sess, b.room)) fail_(busy);
+    if (rows.some(x => x.status === 'Approved' && x.id !== b.id && x.room === b.room && x.date === b.date && sessionsClash_(x.sess, b.sess))) fail_(busy);
 
     const s = SESSIONS[b.sess];
     const start = toDate_(b.date, s.start);
@@ -475,12 +505,15 @@ function approveBooking_(id, user) {
     let ev = null, bar = null;
     try {
       // No names, emails or phone numbers in the calendar: committee phones subscribe to it.
-      ev = cal_().createEvent('Private party', start, end,
-        { description: 'Online booking ' + b.id + '. ' + b.type + ', ' + b.guests + ' guests. Contact details are on the committee page.' });
-      ev.setTag('cat', 'room'); ev.setTag('pub', '1'); ev.setTag('room', '1'); ev.setTag('by', user.name); ev.setTag('bk', b.id);
-      bar = cal_().createEvent('Bar cover needed: private party', start, end,
-        { description: 'Bar cover for online booking ' + b.id + ' (' + b.guests + ' guests).' });
-      bar.setTag('cat', 'staff'); bar.setTag('pub', '0'); bar.setTag('room', '0'); bar.setTag('by', user.name); bar.setTag('bar', b.id);
+      // The title names the room for the committee. The public page always shows just "Private party".
+      const where = ' (' + roomName_(b.room) + ')';
+      ev = cal_().createEvent('Private party' + where, start, end,
+        { description: 'Online booking ' + b.id + ', ' + roomName_(b.room) + '. ' + b.type + ', ' + b.guests + ' guests. Contact details are on the committee page.' });
+      ev.setTag('cat', 'room'); ev.setTag('pub', '1'); ev.setTag('room', b.room === 'fn' ? '1' : '0'); ev.setTag('tea', b.room === 'tea' ? '1' : '0');
+      ev.setTag('by', user.name); ev.setTag('bk', b.id);
+      bar = cal_().createEvent('Bar cover needed: private party' + where, start, end,
+        { description: 'Bar cover for online booking ' + b.id + ' in the ' + roomName_(b.room) + ' (' + b.guests + ' guests).' });
+      bar.setTag('cat', 'staff'); bar.setTag('pub', '0'); bar.setTag('room', '0'); bar.setTag('tea', '0'); bar.setTag('by', user.name); bar.setTag('bar', b.id);
       updateBooking_(b, { status: 'Approved', by: user.name, at: nowText_(), cal: ev.getId(), bar: bar.getId() });
     } catch (err) {
       // Don't leave a "Private party" in the diary that the Bookings tab knows nothing about
@@ -494,10 +527,10 @@ function approveBooking_(id, user) {
   }
   const set = settings_();
   const terms = termsUrl_(set);
-  const sent = sendMail_(b.email, 'Your function room booking is confirmed (' + b.id + ')', [
+  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking is confirmed (' + b.id + ')', [
     'Hello ' + b.name + ',',
-    'Good news. Your function room booking at ' + CLUB_NAME + ' is confirmed.',
-    detailLines_(b.date, b.sess, b.type, b.guests, b.id),
+    'Good news. Your ' + roomName_(b.room) + ' booking at ' + CLUB_NAME + ' is confirmed.',
+    detailLines_(b.room, b.date, b.sess, b.type, b.guests, b.id),
     terms ? 'Please read the hire terms before your event:\n' + terms : 'The club will send you the hire terms before your event.',
     'If you need to change or cancel, please tell us as soon as you can by replying to this email.',
     CLUB_NAME
@@ -508,9 +541,9 @@ function approveBooking_(id, user) {
 function declineBooking_(id, reason, user) {
   const why = cleanStr_(reason, 500, true);
   const b = decide_(id, 'Pending', { status: 'Declined', reason: why }, user, 'Declined request');
-  const sent = sendMail_(b.email, 'Your function room request (' + b.id + ')', [
+  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' request (' + b.id + ')', [
     'Hello ' + b.name + ',',
-    'Thank you for your request. Sorry, the club cannot take your booking for the function room on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
+    'Thank you for your request. Sorry, the club cannot take your booking for the ' + roomName_(b.room) + ' on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
     why ? 'The committee said: ' + why : '',
     'You are welcome to send a request for another date.',
     CLUB_NAME
@@ -522,9 +555,9 @@ function cancelBooking_(id, reason, user) {
   const why = cleanStr_(reason, 500, true);
   if (why.length < 3) fail_('Add a reason. It goes in the email to the customer.');
   const b = decide_(id, 'Approved', { status: 'Cancelled', reason: why }, user, 'Cancelled booking', true);
-  const sent = sendMail_(b.email, 'Your function room booking has been cancelled (' + b.id + ')', [
+  const sent = sendMail_(b.email, 'Your ' + roomName_(b.room) + ' booking has been cancelled (' + b.id + ')', [
     'Hello ' + b.name + ',',
-    'Sorry, the club has had to cancel your function room booking on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
+    'Sorry, the club has had to cancel your ' + roomName_(b.room) + ' booking on ' + niceDate_(b.date) + ' (' + sessionText_(b.sess) + ').',
     'Reason: ' + why,
     'We are sorry for the trouble this causes. Please reply to this email if you have any questions.',
     CLUB_NAME
@@ -575,14 +608,27 @@ function purgeOldContacts() {
 
 /* ---- Bookings tab ---- */
 
-function bookingRows_() {
+/** The Bookings tab, with every column the code needs. Adds any missing columns at the end, with their headings
+ *  (the Room column came with the tea room), so a sheet set up earlier keeps working even if setupStage3 was not run. */
+function bookingsSheet_() {
   const sh = sheet_('Bookings');
+  const have = sh.getMaxColumns();
+  if (have < BK_COLS) {
+    sh.insertColumnsAfter(have, BK_COLS - have);
+    sh.getRange(1, have + 1, 1, BK_COLS - have).setValues([BK_HEADERS.slice(have)]);
+  }
+  return sh;
+}
+
+function bookingRows_() {
+  const sh = bookingsSheet_();
   const last = sh.getLastRow();
   if (last < 2) return [];
   return sh.getRange(2, 1, last - 1, BK_COLS).getValues().map((r, i) => {
     const o = { row: i + 2 };
     Object.keys(BK).forEach(k => { o[k] = cellText_(r[BK[k] - 1]); });
     o.sess = sessKey_(o.sess, o.start, o.end);
+    o.room = roomKey_(o.room); // blank on older rows: the function room
     return o;
   });
 }
@@ -595,54 +641,58 @@ function findBooking_(rows, id) {
   return b;
 }
 
-/** One row of cell values, every one guarded against formulas. Session is stored as its label ("Evening"). */
+/** One row of cell values, every one guarded against formulas. Session and room are stored as labels ("Evening", "Tea room"). */
 function bookingRowValues_(o) {
   const row = new Array(BK_COLS).fill('');
   Object.keys(BK).forEach(k => {
     let v = o[k] == null ? '' : o[k];
     if (k === 'sess' && SESSIONS[v]) v = SESSIONS[v].label;
+    if (k === 'room' && ROOMS[v]) v = ROOMS[v].label;
     row[BK[k] - 1] = safeCell_(v);
   });
   return row;
 }
 
 function appendBooking_(vals) {
-  const sh = sheet_('Bookings');
+  const sh = bookingsSheet_();
   // Plain text format first, so Sheets keeps dates, times and phone numbers exactly as written
   sh.getRange(sh.getLastRow() + 1, 1, 1, BK_COLS).setNumberFormat('@').setValues([bookingRowValues_(vals)]);
 }
 
 /** Rewrites one booking row in a single write. Only call it inside the script lock, with a row just read. */
 function updateBooking_(b, vals) {
-  sheet_('Bookings').getRange(b.row, 1, 1, BK_COLS).setNumberFormat('@').setValues([bookingRowValues_(Object.assign({}, b, vals))]);
+  bookingsSheet_().getRange(b.row, 1, 1, BK_COLS).setNumberFormat('@').setValues([bookingRowValues_(Object.assign({}, b, vals))]);
 }
 
 /** What the committee page gets for one booking. */
 function bkOut_(b) {
-  return { id: b.id, received: b.received, date: b.date, sess: b.sess, type: b.type, guests: b.guests,
+  return { id: b.id, received: b.received, date: b.date, sess: b.sess, room: b.room, type: b.type, guests: b.guests,
     name: b.name, email: b.email, phone: b.phone, message: b.notes, by: b.by, at: b.at };
 }
 
 function byBkDate_(a, b) { return (a.date + a.sess).localeCompare(b.date + b.sess); }
 
-/** Every room use on one date, from the calendar: approved bookings and committee items ticked "Uses the function room". */
+/** Every room use on one date, from the calendar: approved bookings and committee items ticked
+ *  "Uses the function room" or "Uses the tea room". One entry per room: [{ date, sess, room }]. */
 function roomUsesOn_(date) {
   const out = [];
   eventsOnDate_(date).forEach(ev => {
     const x = shape_(ev, false);
-    if (x.date === date && usesRoom_(ev, x)) out.push({ date: date, sess: sessionOfTimes_(x.start, x.end) });
+    if (x.date !== date) return;
+    const sess = sessionOfTimes_(x.start, x.end);
+    roomsOf_(ev, x).forEach(r => out.push({ date: date, sess: sess, room: r }));
   });
   return out;
 }
 
-/** Approved online bookings on one date (their "Private party" events). */
+/** Approved online bookings on one date (their "Private party" events), with the rooms they take. */
 function bookingEventsOn_(date) {
   const out = [];
   eventsOnDate_(date).forEach(ev => {
     const ref = ev.getTag('bk');
     if (!ref) return;
     const x = shape_(ev, false);
-    if (x.date === date) out.push({ date: date, sess: sessionOfTimes_(x.start, x.end), ref: ref });
+    if (x.date === date) out.push({ date: date, sess: sessionOfTimes_(x.start, x.end), ref: ref, rooms: roomsOf_(ev, x) });
   });
   return out;
 }
@@ -692,8 +742,8 @@ function recentAttention_() {
     .slice(0, 10);
 }
 
-function detailLines_(date, sess, type, guests, ref) {
-  return ['Date: ' + niceDate_(date), 'Session: ' + sessionText_(sess), 'Type of event: ' + type,
+function detailLines_(room, date, sess, type, guests, ref) {
+  return ['Room: ' + ROOMS[room].label, 'Date: ' + niceDate_(date), 'Session: ' + sessionText_(sess), 'Type of event: ' + type,
     'Guests: ' + guests, 'Reference: ' + ref].join('\n');
 }
 
@@ -711,7 +761,8 @@ function settings_() {
 /** Safe settings for the public page. Cached with the public diary. */
 function publicRules_() {
   const set = settings_();
-  return { today: todayIso_(), capacity: capacity_(set), termsUrl: termsUrl_(set), minNotice: MIN_NOTICE_DAYS,
+  const rooms = Object.keys(ROOMS).map(k => ({ key: k, label: ROOMS[k].label, capacity: capacity_(set, k) }));
+  return { today: todayIso_(), capacity: capacity_(set), rooms: rooms, termsUrl: termsUrl_(set), minNotice: MIN_NOTICE_DAYS,
     maxMonths: MAX_AHEAD_MONTHS, shortNoticeType: SHORT_NOTICE_TYPE, types: EVENT_TYPES, privacyContact: privacyContact_(set) };
 }
 
@@ -731,7 +782,9 @@ function cellText_(v) {
 
 /* ---- Pure rules (no Google services, so tests/test-rules.js can check them) ---- */
 
-/** Checks a request and returns clean values. Throws a plain English message on the first problem. */
+/** Checks a request and returns clean values. Throws a plain English message on the first problem.
+ *  capacity is one number for every room, or { fn: 75, tea: 75 }. A request with no room is for the function room
+ *  (that is what a page from before the tea room sends). */
 function validateRequest_(b, today, capacity) {
   const name = cleanStr_(b.name, 80);
   if (name.length < 2) fail_('Add your name.');
@@ -744,6 +797,8 @@ function validateRequest_(b, today, capacity) {
   const email = cleanStr_(b.email, 120);
   if (!isEmail_(email)) fail_('Add an email address so we can reply.');
 
+  const room = b.room == null || b.room === '' ? DEFAULT_ROOM : String(b.room);
+  if (!Object.prototype.hasOwnProperty.call(ROOMS, room)) fail_('Choose a room: the function room or the tea room.');
   const date = String(b.date || '');
   if (!isRealDate_(date)) fail_('Choose a date.');
   const sess = String(b.sess || '');
@@ -754,7 +809,8 @@ function validateRequest_(b, today, capacity) {
   const g = String(b.guests == null ? '' : b.guests).trim();
   const guests = /^\d{1,4}$/.test(g) ? Number(g) : 0;
   if (guests < 1) fail_('Add roughly how many guests.');
-  if (guests > capacity) fail_('The room holds up to ' + capacity + ' people, including staff and entertainers.');
+  const cap = typeof capacity === 'object' ? capacity[room] : capacity;
+  if (guests > cap) fail_('The ' + roomName_(room) + ' holds up to ' + cap + ' people, including staff and entertainers.');
 
   const message = cleanStr_(b.message, 1000, true);
 
@@ -766,7 +822,7 @@ function validateRequest_(b, today, capacity) {
   }
   if (date > addMonthsIso_(today, MAX_AHEAD_MONTHS)) fail_('We take requests up to ' + MAX_AHEAD_MONTHS + ' months ahead.');
 
-  return { name: name, phone: phone, email: email, date: date, sess: sess, type: type, guests: guests, message: message };
+  return { name: name, phone: phone, email: email, room: room, date: date, sess: sess, type: type, guests: guests, message: message };
 }
 
 /** Which bookable session a diary item takes, from its times: 'aft', 'eve', 'day', or '' if neither.
@@ -785,6 +841,23 @@ function sessionOfTimes_(start, end) {
 
 function sessionsClash_(a, b) { return !!a && !!b && (a === 'day' || b === 'day' || a === b); }
 
+/** The rooms a diary item takes, from its type and its two ticks. Matches roomsOf() in rules.js.
+ *  Room hire with no tea room tick is the function room, so every event made before the tea room still counts. */
+function roomsOfTags_(cat, roomTag, teaTag) {
+  const out = [];
+  if (roomTag === '1' || (cat === 'room' && teaTag !== '1')) out.push('fn');
+  if (teaTag === '1') out.push('tea');
+  return out;
+}
+
+/** "Tea room" → 'tea'. A blank (every row from before the tea room) or anything not recognised is the function room. */
+function roomKey_(v) {
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  return Object.keys(ROOMS).find(k => k === s || ROOMS[k].label.toLowerCase() === s) || DEFAULT_ROOM;
+}
+function roomName_(k) { return (ROOMS[k] || ROOMS[DEFAULT_ROOM]).label.toLowerCase(); }
+function roomOf_(x) { return (x && x.room) || DEFAULT_ROOM; }
+
 /** Is it time to remove this booking's contact details? Pure, so tests can check it. */
 function purgeDue_(b, today) {
   if (b.status === 'Declined') {
@@ -795,6 +868,13 @@ function purgeDue_(b, today) {
   // A blank or unreadable event date falls back to the date the request came in
   const event = isRealDate_(b.date) ? b.date : String(b.received || '').slice(0, 10);
   return !isRealDate_(event) || event < addMonthsIso_(today, -KEEP_CONTACT_MONTHS);
+}
+
+/** [{date, sess, room}] → { fn: {...}, tea: {...} }: one takenSessions_ map per room. A use with no room is the function room. */
+function takenByRoom_(uses) {
+  const out = {};
+  Object.keys(ROOMS).forEach(k => { out[k] = takenSessions_(uses.filter(u => roomOf_(u) === k)); });
+  return out;
 }
 
 /** [{date, sess}] → { '2026-11-14': ['aft', 'eve'] }. Whole day takes both. */
@@ -809,16 +889,19 @@ function takenSessions_(uses) {
   return out;
 }
 
-function isFreeIn_(uses, date, sess) {
-  return !uses.some(u => u.date === date && sessionsClash_(u.sess, sess));
+/** Is this session free in this room (the function room if none given)? A use with no room is the function room. */
+function isFreeIn_(uses, date, sess, room) {
+  const want = room || DEFAULT_ROOM;
+  return !uses.some(u => u.date === date && roomOf_(u) === want && sessionsClash_(u.sess, sess));
 }
 
 /** Plain English clash warning for the committee. Empty if there is no clash. */
 function clashNote_(p, pending, uses) {
   const notes = [];
-  uses.filter(u => u.date === p.date && sessionsClash_(u.sess, p.sess))
-    .forEach(u => notes.push('The room is already in use that day: ' + u.title + ' (' + SESSIONS[u.sess].label.toLowerCase() + ').'));
-  const others = pending.filter(o => o.id !== p.id && o.date === p.date && sessionsClash_(o.sess, p.sess));
+  const room = roomOf_(p);
+  uses.filter(u => u.date === p.date && roomOf_(u) === room && sessionsClash_(u.sess, p.sess))
+    .forEach(u => notes.push('The ' + roomName_(room) + ' is already in use that day: ' + u.title + ' (' + SESSIONS[u.sess].label.toLowerCase() + ').'));
+  const others = pending.filter(o => o.id !== p.id && roomOf_(o) === room && o.date === p.date && sessionsClash_(o.sess, p.sess));
   if (others.length === 1) notes.push('Another request wants this session too (' + others[0].id + ').');
   else if (others.length > 1) notes.push(others.length + ' other requests want this session too.');
   return notes.join(' ');
@@ -838,9 +921,15 @@ function replyTo_(set) { const v = String(set['Reply-to email'] || ''); return i
 function termsUrl_(set) { const v = String(set['Hire terms link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
 function committeeUrl_(set) { const v = String(set['Committee page link'] || ''); return /^https:\/\/[^\s<>"']+$/.test(v) ? v : ''; }
 function privacyContact_(set) { return cleanStr_(String(set['Privacy contact'] || '').replace(/[<>]/g, ''), 120); }
-function capacity_(set) {
-  const n = parseInt(set['Room capacity'], 10);
+/** Most guests for a room (the function room if none given), from Settings. Blank, or over 75, means 75. */
+function capacity_(set, room) {
+  const n = parseInt(set[(ROOMS[room] || ROOMS[DEFAULT_ROOM]).setting], 10);
   return n >= 1 && n <= MAX_GUESTS ? n : MAX_GUESTS;
+}
+function capacities_(set) {
+  const out = {};
+  Object.keys(ROOMS).forEach(k => { out[k] = capacity_(set, k); });
+  return out;
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

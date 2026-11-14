@@ -99,6 +99,59 @@ ok(/2 other requests/.test(G.clashNote_(p2, [p1, p2, p3], [])), 'whole day clash
 eq(G.clashNote_(p3, [p1, p3], []), '', 'afternoon and evening requests do not clash');
 ok(/in use that day: Quiz/.test(G.clashNote_(p1, [p1], [{ date: 'A', sess: 'eve', title: 'Quiz' }])), 'clash with a committee room item');
 
+/* tea room: a second room with its own availability */
+eq(v({ room: 'tea' }).room, 'tea', 'a tea room request is accepted');
+eq(v({}).room, 'fn', 'a request with no room (an older page) is for the function room');
+eq(v({ room: '' }).room, 'fn', 'a blank room is the function room');
+throws(() => v({ room: 'bar' }), /Choose a room/, 'an unknown room is refused');
+throws(() => v({ room: 'constructor' }), /Choose a room/, 'prototype key as room is refused');
+throws(() => G.validateRequest_(Object.assign({}, good, { room: 'tea', guests: 51 }), TODAY, { fn: 75, tea: 50 }), /tea room holds up to 50/, 'the tea room capacity is used for a tea room request');
+eq(G.validateRequest_(Object.assign({}, good, { guests: 70 }), TODAY, { fn: 75, tea: 50 }).guests, 70, 'the function room keeps its own capacity');
+eq(G.capacity_({ 'Tea room capacity': '60' }, 'tea'), 60, 'tea room capacity read from Settings');
+eq(G.capacity_({}, 'tea'), 75, 'no tea room capacity row means 75');
+eq(G.capacity_({ 'Tea room capacity': '90' }, 'tea'), 75, 'tea room capacity cannot be raised above 75');
+eq(G.capacity_({ 'Room capacity': '40', 'Tea room capacity': '60' }), 40, 'Room capacity is still the function room');
+eq(G.capacities_({ 'Tea room capacity': '50' }), { fn: 75, tea: 50 }, 'both capacities together');
+
+const fnEve = { date: 'A', sess: 'eve', room: 'fn' }, teaEve = { date: 'A', sess: 'eve', room: 'tea' };
+ok(G.isFreeIn_([fnEve], 'A', 'eve', 'tea'), 'tea room evening free while the function room is booked that evening');
+ok(G.isFreeIn_([teaEve], 'A', 'eve', 'fn'), 'function room evening free while the tea room is booked that evening');
+ok(!G.isFreeIn_([teaEve], 'A', 'eve', 'tea'), 'same room same session is refused');
+ok(!G.isFreeIn_([teaEve], 'A', 'day', 'tea'), 'tea room whole day blocked by a tea room evening');
+ok(!G.isFreeIn_([{ date: 'A', sess: 'eve' }], 'A', 'eve', 'fn'), 'a use with no room counts as the function room');
+ok(G.isFreeIn_([{ date: 'A', sess: 'eve' }], 'A', 'eve', 'tea'), 'a use with no room does not block the tea room');
+eq(G.takenByRoom_([fnEve, { date: 'A', sess: 'aft', room: 'tea' }, { date: 'B', sess: 'day' }]),
+  { fn: { A: ['eve'], B: ['aft', 'eve'] }, tea: { A: ['aft'] } }, 'taken sessions kept apart per room, no room means function room');
+
+/* which rooms a calendar event takes, from its tags */
+eq(G.roomsOfTags_('room', '1', ''), ['fn'], 'an old room hire event (no tea tag) is the function room');
+eq(G.roomsOfTags_('room', null, null), ['fn'], 'room hire with no tags at all is the function room');
+eq(G.roomsOfTags_('room', '0', '1'), ['tea'], 'a tea room booking takes only the tea room');
+eq(G.roomsOfTags_('room', '1', '1'), ['fn', 'tea'], 'room hire can take both rooms');
+eq(G.roomsOfTags_('club', '', '1'), ['tea'], 'the tea room tick blocks the tea room only');
+eq(G.roomsOfTags_('club', '1', ''), ['fn'], 'the function room tick blocks the function room only');
+eq(G.roomsOfTags_('club', '1', '1'), ['fn', 'tea'], 'both ticks block both rooms');
+eq(G.roomsOfTags_('club', null, null), [], 'an untagged event takes no room');
+eq(G.roomsOfTags_('staff', '0', '0'), [], 'a bar cover reminder takes no room');
+
+/* older Bookings rows have no Room */
+eq(G.roomKey_(''), 'fn', 'a blank Room cell is the function room');
+eq(G.roomKey_(undefined), 'fn', 'a missing Room cell is the function room');
+eq(G.roomKey_('Tea room'), 'tea', 'Tea room read back from the sheet');
+eq(G.roomKey_(' tea ROOM '), 'tea', 'Tea room typed by hand is still understood');
+eq(G.roomKey_('Function room'), 'fn', 'Function room read back from the sheet');
+eq(G.bookingRowValues_({ id: 'ECC-AAAAAA', sess: 'eve', room: 'tea' })[18], 'Tea room', 'room saved to the sheet as its label');
+eq(G.bookingRowValues_({ id: 'ECC-AAAAAA' }).length, 19, 'a booking row has 19 columns');
+
+/* clash notes per room */
+const t1 = { id: 'ECC-TTTTT1', date: 'A', sess: 'eve', room: 'tea' }, f1 = { id: 'ECC-FFFFF1', date: 'A', sess: 'eve', room: 'fn' };
+eq(G.clashNote_(t1, [t1, f1], []), '', 'tea room and function room requests the same evening do not clash');
+ok(/ECC-TTTTT2/.test(G.clashNote_(t1, [t1, { id: 'ECC-TTTTT2', date: 'A', sess: 'day', room: 'tea' }], [])), 'two tea room requests the same session clash');
+ok(/ECC-FFFFF1/.test(G.clashNote_({ id: 'ECC-OLD001', date: 'A', sess: 'eve' }, [f1], [])), 'an old request with no room clashes with a function room request');
+ok(/tea room is already in use that day: Quiz/.test(G.clashNote_(t1, [t1], [{ date: 'A', sess: 'eve', room: 'tea', title: 'Quiz' }])), 'clash with a committee tea room item names the tea room');
+eq(G.clashNote_(t1, [t1], [{ date: 'A', sess: 'eve', room: 'fn', title: 'Quiz' }]), '', 'a function room item does not clash with a tea room request');
+eq(G.detailLines_('tea', '2026-11-21', 'eve', 'Birthday party', 40, 'ECC-AAAAAA').split('\n')[0], 'Room: Tea room', 'emails name the room');
+
 /* contact clean-up */
 const T2 = '2026-11-07';
 ok(G.purgeDue_({ status: 'Approved', date: '2026-05-06', received: '2026-01-01 10:00' }, T2), 'event over 6 months ago is cleared');
@@ -134,10 +187,17 @@ const answer = (fn) => { try { return JSON.stringify(fn()); } catch (e) { return
   {}, { date: '2026-11-14' }, { date: '2026-11-13' }, { date: '2026-11-08', type: 'Funeral wake' }, { date: '2026-11-07', type: 'Funeral wake' },
   { date: '2027-11-07' }, { date: '2027-11-08' }, { guests: 75 }, { guests: 76 }, { guests: '' }, { name: 'a' }, { name: 'x www.y' },
   { phone: '0770' }, { email: 'x@y' }, { date: '2026-13-01' }, { sess: 'aft' }, { sess: 'toString' }, { type: 'Other' }, { type: 'x' },
-  { message: '<img src=x onerror=alert(1)>' }, { name: '=cmd|calc' }
+  { message: '<img src=x onerror=alert(1)>' }, { name: '=cmd|calc' },
+  { room: 'tea' }, { room: 'fn' }, { room: '' }, { room: 'Tea room' }, { room: 'toString' }, { room: 'tea', guests: 51 }, { room: 'tea', sess: 'x' }
 ].forEach((o, i) => {
   const input = Object.assign({}, good, o);
   eq(answer(() => B.validate(input, TODAY, 75)), answer(() => G.validateRequest_(input, TODAY, 75)), 'browser and server agree on case ' + i);
+  const caps = { fn: 75, tea: 50 };
+  eq(answer(() => B.validate(input, TODAY, caps)), answer(() => G.validateRequest_(input, TODAY, caps)), 'browser and server agree on case ' + i + ' with two capacities');
+});
+[{ cat: 'room' }, { cat: 'room', room: true }, { cat: 'room', tea: true }, { cat: 'room', room: true, tea: true }, { cat: 'club' },
+  { cat: 'club', tea: true }, { cat: 'club', room: true }, { cat: 'club', room: true, tea: true }].forEach(e => {
+  eq(B.roomsOf(e), G.roomsOfTags_(e.cat, e.room ? '1' : '0', e.tea ? '1' : '0'), 'browser and server agree on rooms for ' + JSON.stringify(e));
 });
 ['12:00|17:00', '18:00|00:00', '12:00|00:00', '20:00|01:00', '|', '15:00|20:00', '17:00|18:00', '09:00|12:00', '10:00|14:00', '18:00|23:00', '16:30|17:30', '00:00|03:00', '11:00|12:30'].forEach(t => {
   const [a, b] = t.split('|');

@@ -1,10 +1,16 @@
-/* Elsecar Club Diary: function room rules for the browser.
+/* Elsecar Club Diary: room hire rules for the browser (function room and tea room).
    A copy of the rules in apps-script/Code.gs. The server is what really enforces them;
    this copy only gives quick feedback on the form and powers demo mode.
    tests/test-rules.js checks both copies give the same answers. */
 (function () {
 'use strict';
 
+const ROOMS = {
+  fn:  { label: 'Function room' },
+  tea: { label: 'Tea room' }
+};
+const DEFAULT_ROOM = 'fn';
+const roomName = k => (ROOMS[k] || ROOMS[DEFAULT_ROOM]).label.toLowerCase();
 const SESSIONS = {
   aft: { label: 'Afternoon', time: '12pm to 5pm',      start: '12:00', end: '17:00' },
   eve: { label: 'Evening',   time: '6pm to midnight',  start: '18:00', end: '00:00' },
@@ -42,7 +48,8 @@ function addMonths(s, n) {
 function niceDate(s) { const t = new Date(utcOf(s)); return DAYS[t.getUTCDay()] + ' ' + t.getUTCDate() + ' ' + MONTHS[t.getUTCMonth()] + ' ' + t.getUTCFullYear(); }
 const isEmail = s => /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[A-Za-z]{2,}$/.test(String(s || '')) && String(s).length <= 120;
 
-/** Same checks, same order and same messages as validateRequest_ in Code.gs. */
+/** Same checks, same order and same messages as validateRequest_ in Code.gs.
+    capacity is one number for every room, or { fn: 75, tea: 75 }. */
 function validate(b, today, capacity) {
   const name = clean(b.name, 80);
   if (name.length < 2) fail('Add your name.');
@@ -52,6 +59,8 @@ function validate(b, today, capacity) {
   if (!/^[0-9 +()\-]+$/.test(phone) || digits.length < 10 || digits.length > 15) fail('Add a phone number we can call you on.');
   const email = clean(b.email, 120);
   if (!isEmail(email)) fail('Add an email address so we can reply.');
+  const room = b.room == null || b.room === '' ? DEFAULT_ROOM : String(b.room);
+  if (!Object.prototype.hasOwnProperty.call(ROOMS, room)) fail('Choose a room: the function room or the tea room.');
   const date = String(b.date || '');
   if (!isRealDate(date)) fail('Choose a date.');
   const sess = String(b.sess || '');
@@ -61,7 +70,8 @@ function validate(b, today, capacity) {
   const g = String(b.guests == null ? '' : b.guests).trim();
   const guests = /^\d{1,4}$/.test(g) ? Number(g) : 0;
   if (guests < 1) fail('Add roughly how many guests.');
-  if (guests > capacity) fail('The room holds up to ' + capacity + ' people, including staff and entertainers.');
+  const cap = typeof capacity === 'object' ? capacity[room] : capacity;
+  if (guests > cap) fail('The ' + roomName(room) + ' holds up to ' + cap + ' people, including staff and entertainers.');
   const message = clean(b.message, 1000, true);
   const ahead = daysBetween(today, date);
   if (type === SHORT_NOTICE_TYPE) {
@@ -70,7 +80,7 @@ function validate(b, today, capacity) {
     fail('We need at least ' + MIN_NOTICE + " days' notice. The earliest date you can ask for is " + niceDate(addDays(today, MIN_NOTICE)) + '.');
   }
   if (date > addMonths(today, MAX_MONTHS)) fail('We take requests up to ' + MAX_MONTHS + ' months ahead.');
-  return { name, phone, email, date, sess, type, guests, message };
+  return { name, phone, email, room, date, sess, type, guests, message };
 }
 
 /** Which bookable session a diary item takes: 'aft', 'eve', 'day', or '' if neither (for example 09:00 to 12:00).
@@ -86,9 +96,17 @@ function sessionOf(start, end) {
   return aft && eve ? 'day' : aft ? 'aft' : eve ? 'eve' : '';
 }
 const clash = (a, b) => !!a && !!b && (a === 'day' || b === 'day' || a === b);
+/** The rooms a committee diary item takes ('fn', 'tea' or both). Room hire with no tick is the function room,
+    as on the server (roomsOfTags_ in Code.gs). */
+function roomsOf(e) {
+  const out = [];
+  if (e.room || (e.cat === 'room' && !e.tea)) out.push('fn');
+  if (e.tea) out.push('tea');
+  return out;
+}
 /** Given the sessions already taken on a date (['aft'], ['aft','eve']...), can this session be asked for? */
 const canAsk = (taken, sess) => !(taken || []).some(t => clash(t, sess));
 
-window.DiaryRules = { SESSIONS, TYPES, SHORT_NOTICE_TYPE, MIN_NOTICE, MAX_MONTHS, MAX_GUESTS,
+window.DiaryRules = { ROOMS, DEFAULT_ROOM, roomName, roomsOf, SESSIONS, TYPES, SHORT_NOTICE_TYPE, MIN_NOTICE, MAX_MONTHS, MAX_GUESTS,
   validate, sessionOf, clash, canAsk, addDays, addMonths, daysBetween, niceDate, isEmail, clean };
 })();

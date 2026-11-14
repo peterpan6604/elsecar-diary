@@ -46,7 +46,7 @@ If you get the code wrong five times, the diary locks you out for 15 minutes. Wa
 2. Type what is happening.
 3. Choose the **type**, the **date**, and the **start** and **finish** times.
 4. Add notes if you want. Only the committee sees notes.
-5. Tick **Uses the function room** if it takes up the room. This stops the public booking it for those times.
+5. Tick **Uses the function room** or **Uses the tea room** (or both) if it takes up that room. This stops the public booking that room for those times. The other room stays open to the public. For **Room hire** items, tick the room being hired.
 6. Tick **Show on the public website** only if everyone should see it. Anything left unticked is for the committee only.
 7. Tap **Add to diary**.
 
@@ -70,28 +70,28 @@ The diary is also a Google Calendar called **Club Diary**. Subscribe once and ev
 
 Subscribed calendars can be slow to update. A change can take several hours to show up in your phone's calendar. The diary page itself is always up to date, so use that if you need to be sure.
 
-## 7. Function room requests from the website
+## 7. Room hire requests from the website
 
-People ask for the function room on the club website. Nothing is booked until a committee member approves it.
+People ask for the **function room** or the **tea room** on the club website. The two rooms are hired separately, so one party can have the function room and another the tea room on the same evening. Nothing is booked until a committee member approves it.
 
-When a request comes in, every committee member gets an email. It has the date, session and type of event, but no contact details. Open the diary to see who it is from.
+When a request comes in, every committee member gets an email. It has the room, date, session and type of event, but no contact details. Open the diary to see who it is from.
 
-**Needs approval** (on the right of the diary, or further down on a phone) lists every request waiting.
+**Needs approval** (on the right of the diary, or further down on a phone) lists every request waiting. Each card starts with a label saying **Function room** or **Tea room**.
 
-* **Clash** in orange means another request, a booking, or a committee item using the room wants the same time. Sort that out first.
+* **Clash** in orange means another request, a booking, or a committee item wants the same room at the same time. Sort that out first. A request for the other room never clashes.
 * **View date** shows that day in the calendar.
-* **Approve** checks the room is still free, adds "Private party" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm. The public website then shows that session as booked.
+* **Approve** checks the room is still free, adds "Private party (function room)" or "Private party (tea room)" to the diary, adds a "Bar cover needed" reminder for the same session, and emails the customer to confirm. The public website then shows that session as booked for that room only. The public only ever see "Private party".
 * **Decline** emails the customer to say the club can't take it. You can add a reason. It goes in the email, so keep it polite.
 * **Date passed** means nobody replied before the date. Only Decline is offered, so the customer still gets an answer.
 * A red **Needs attention: emails not sent** box means an email didn't go. Phone or email that customer yourself.
 
-A request does not block the date on the website. Two people can ask for the same evening. Approve one and decline the other.
+A request does not block the date on the website. Two people can ask for the same room on the same evening. Approve one and decline the other.
 
-**Function room bookings** lists approved bookings still to come, with the customer's phone number and email.
+**Room bookings** lists approved bookings for both rooms still to come, with the room, the customer's phone number and email.
 
 * **Cancel booking** asks for a reason, emails it to the customer, and removes the booking and its bar cover reminder from the diary.
 * You can't edit or delete an online booking from the calendar itself. Use Cancel booking so the customer is told.
-* If you add an item and tick "Uses the function room" for a session a customer has booked, the diary refuses it. Untick the box, or cancel the booking first. A morning item (finishing by 12 noon) doesn't clash with anything.
+* If you add an item and tick "Uses the function room" or "Uses the tea room" for a session a customer has booked in that room, the diary refuses it. Untick the box, or cancel the booking first. A morning item (finishing by 12 noon) doesn't clash with anything.
 
 Customer details are only on this page and in the club's admin sheet. They are not in the phone calendar. They are deleted automatically 6 months after the event, or 30 days after a request is declined.
 
@@ -100,5 +100,5 @@ Customer details are only on this page and in the club's admin sheet. They are n
 * **"Can't reach the diary"**: check your signal or wifi and try again. Nothing was changed.
 * **"That code isn't right"**: check the code with the secretary.
 * **"Someone else has deleted this item"**: another committee member removed it. Close the box and carry on.
-* **"The function room is no longer free"** when you approve: something else now uses the room that session. Decline the request, or cancel the other booking first.
+* **"The function room is no longer free"** (or "The tea room...") when you approve: something else now uses that room that session. Decline the request, or cancel the other booking first.
 * **"The email couldn't be sent"**: the request or booking was saved, but the club's daily email limit was reached. Phone the customer instead.

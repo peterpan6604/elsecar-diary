@@ -166,3 +166,6 @@ footer .wrap{padding-block:0 30px}
 .attention b{color:var(--bad)}
 .attention p{margin:4px 0}
 .attention ul{margin:0;padding-left:18px}
+/* which room a request or booking is for */
+.tag.room-fn{background:var(--gold-soft);color:var(--ink);margin-left:0}
+.tag.room-tea{background:color-mix(in srgb,var(--c-club) 14%,transparent);color:var(--c-club);margin-left:0}

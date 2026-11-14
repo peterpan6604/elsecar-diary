@@ -1,8 +1,8 @@
 # Put the diary on the club website
 
-How to show "What's on and function room hire" on elsecarcc.co.uk (the club's Google Site). About 5 minutes.
+How to show "What's on and room hire" on elsecarcc.co.uk (the club's Google Site). About 5 minutes.
 
-**Do this last.** The new `Code.gs` must be pasted in and redeployed first (SETUP.md, step 9), and the stage 3 pages must be live on GitHub Pages. Before that, the page will say function room dates aren't available.
+**Do this last.** The new `Code.gs` must be pasted in and redeployed first (SETUP.md, step 9), and the stage 3 pages must be live on GitHub Pages. Before that, the page will say room hire dates aren't available.
 
 ## The address to paste
 
@@ -10,7 +10,7 @@ How to show "What's on and function room hire" on elsecarcc.co.uk (the club's Go
 https://peterpan6604.github.io/elsecar-diary/
 ```
 
-Open it in your browser first. You should see the calendar with green "Free" labels on dates the room can be booked.
+Open it in your browser first. You should see the calendar with green "Free" labels on dates both rooms can be booked.
 
 ## Steps
 
@@ -26,7 +26,7 @@ Open it in your browser first. You should see the calendar with green "Free" lab
 ## Good to know
 
 * On a phone, Google Sites shows the embed in a box you scroll inside. The page has an **Open full screen** button at the top for anyone who finds that fiddly.
-* It is also worth adding a plain link or button saying "Book the function room" that goes to the same address. On the Google Site: **Insert** → **Button** → paste the address.
+* It is also worth adding a plain link or button saying "Book the function room or tea room" that goes to the same address. On the Google Site: **Insert** → **Button** → paste the address.
 * Changes in the diary show on the website within about 5 minutes.
-* The page never shows names or contact details. Room bookings show only as "Private party", and dates as Free or Booked.
+* The page never shows names or contact details. Room bookings show only as "Private party", and dates as Free, Some free or Booked.
 * The small **Committee** link at the bottom opens the committee page. The committee still need the code.

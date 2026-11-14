@@ -1,4 +1,4 @@
-# Function Room Hire Terms
+# Room Hire Terms: Function Room and Tea Room
 
 **Elsecar Sports & Social Club, Armroyd Lane, Elsecar, S74 8ES**
 
@@ -6,7 +6,7 @@ DRAFT for the committee to check. Items marked **[confirm]** need a decision. Th
 
 ---
 
-By sending a booking request you agree to these terms. "The Club" means Elsecar Sports & Social Club. "You" means the person who makes the booking.
+By sending a booking request you agree to these terms. "The Club" means Elsecar Sports & Social Club. "You" means the person who makes the booking. "The room" means the function room or the tea room, whichever you book. These terms apply to both rooms.
 
 ## 1. Booking
 
@@ -20,9 +20,11 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 1.5 The Club may refuse any booking without giving a reason.
 
+1.6 The function room and the tea room are hired separately. Booking one room does not give you use of the other, and the other room may be hired by someone else at the same time.
+
 ## 2. Prices and payment
 
-2.1 Room hire prices are available from the committee **[confirm: until the price list is published]**.
+2.1 Room hire prices are available from the committee **[confirm: until the price list is published, and whether the tea room is priced differently]**.
 
 2.2 There is no deposit. Any hire charge is paid **[confirm: on the day / before the event]**.
 
@@ -36,13 +38,13 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 4.1 You can use the room from **[confirm: 1 hour]** before your start time to set up.
 
-4.2 Music ends at **[confirm: 11:30pm]** and guests must leave by **[confirm: midnight]**, unless the committee agrees otherwise in writing.
+4.2 Music ends at **[confirm: 11:30pm]** and guests must leave by **[confirm: midnight]**, unless the committee agrees otherwise in writing. **[confirm: the same times apply to the tea room]**
 
 4.3 Bar opening times follow the Club's licence. The bar manager has the final say on serving.
 
 ## 5. Numbers
 
-5.1 The room holds a maximum of **75 people**, including staff, DJs and entertainers. This is a fire safety limit and cannot be exceeded.
+5.1 The function room holds a maximum of **75 people**, and the tea room a maximum of **75 people** **[confirm: tea room fire limit]**, including staff, DJs and entertainers. This is a fire safety limit and cannot be exceeded.
 
 ## 6. Bar and alcohol
 
@@ -52,7 +54,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 ## 7. Food
 
-7.1 You may bring your own buffet or use your own caterer **[confirm]**.
+7.1 You may bring your own buffet or use your own caterer **[confirm]**. **[confirm: whether tea room hirers can use the kitchen]**
 
 7.2 You are responsible for the food you provide, including telling your guests about allergens.
 
@@ -72,7 +74,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 9.1 DJs, bands and entertainers must have their own public liability insurance, and their electrical equipment must be safety (PAT) tested. The Club may ask to see proof.
 
-9.2 Keep music at a reasonable volume. Club staff may ask for the volume to be turned down to protect neighbours, and you must agree to this.
+9.2 Keep music at a reasonable volume. Club staff may ask for the volume to be turned down to protect neighbours, or another party using the other room, and you must agree to this.
 
 ## 10. Children
 

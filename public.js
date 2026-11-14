@@ -1,4 +1,4 @@
-/* Elsecar Club Diary: public page (what's on, and function room requests).
+/* Elsecar Club Diary: public page (what's on, and requests to hire the function room or the tea room).
    Plain JavaScript, no libraries. Everything from the server or typed by a visitor is put on the page
    as text (textContent / text nodes, never innerHTML), so nothing can run as code.
    The rules here only give quick feedback. The server checks every request again. */
@@ -13,13 +13,13 @@ const HAS_BACKEND = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.te
 /* Demo mode only: load the pretend server. Normal visits never download it. */
 const demoReady = DEMO ? new Promise((ok, no) => {
   const s = document.createElement('script');
-  s.src = 'demo.js?v=2'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
+  s.src = 'demo.js?v=3'; s.onload = ok; s.onerror = () => no(new Error('The demo could not load. Refresh to try again.'));
   document.head.append(s);
 }) : null;
 const IN_FRAME = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
 
 const CATS = {
-  room:    { label: 'Function room', c: 'var(--c-room)' },
+  room:    { label: 'Room hire',     c: 'var(--c-room)' },
   club:    { label: 'Club events',   c: 'var(--c-club)' },
   cricket: { label: 'Cricket',       c: 'var(--c-cricket)' }
 };
@@ -68,10 +68,11 @@ const S = {
   y: now.getFullYear(), m: now.getMonth(), sel: isoOf(now),
   off: new Set(),
   events: [],                // this month's public items
-  taken: {},                 // date -> sessions already booked, for every date loaded so far
+  rooms: [{ key: 'fn', label: R.ROOMS.fn.label, capacity: R.MAX_GUESTS }], // the rooms the server says can be hired
+  taken: {},                 // room -> date -> sessions already booked, for every date loaded so far
   known: new Set(),          // dates we have room information for
   coming: [],
-  rules: { privacyContact: '', capacity: R.MAX_GUESTS, termsUrl: '', minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS, shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES },
+  rules: { privacyContact: '', termsUrl: '', minNotice: R.MIN_NOTICE, maxMonths: R.MAX_MONTHS, shortNoticeType: R.SHORT_NOTICE_TYPE, types: R.TYPES },
   loadErr: '', loading: false,
   form: null,                // open request form: { date, sess, type, ... }
   sent: null                 // { ref, emailed } after a request is sent
@@ -79,8 +80,24 @@ const S = {
 const earliest = () => R.addDays(S.today, S.rules.minNotice);
 const earliestWake = () => R.addDays(S.today, 1);
 const latest = () => R.addMonths(S.today, S.rules.maxMonths);
-const takenOn = d => S.taken[d] || [];
-const freeSessions = d => ['aft', 'eve'].filter(s => R.canAsk(takenOn(d), s));
+const takenOn = (room, d) => (S.taken[room] && S.taken[room][d]) || [];
+const freeSessions = (room, d) => ['aft', 'eve'].filter(s => R.canAsk(takenOn(room, d), s));
+const freeCount = d => S.rooms.reduce((n, r) => n + freeSessions(r.key, d).length, 0);
+const roomInfo = k => S.rooms.find(r => r.key === k) || S.rooms[0];
+const roomLower = k => roomInfo(k).label.toLowerCase();
+const capacities = () => { const c = {}; S.rooms.forEach(r => { c[r.key] = r.capacity; }); return c; };
+/** The first room and session free on a date, or null. */
+function firstFree(d) {
+  for (const r of S.rooms) { const f = freeSessions(r.key, d); if (f.length) return { room: r.key, sess: f[0] }; }
+  return null;
+}
+/** Rooms from the server. A server from before the tea room sends none, so only the function room is offered. */
+function readRooms(list, fnCap) {
+  const cap = n => Math.min(+n || R.MAX_GUESTS, R.MAX_GUESTS);
+  const out = Array.isArray(list) ? list.filter(x => x && Object.prototype.hasOwnProperty.call(R.ROOMS, x.key))
+    .map(x => ({ key: x.key, label: R.ROOMS[x.key].label, capacity: cap(x.capacity) })) : [];
+  return out.length ? out : [{ key: 'fn', label: R.ROOMS.fn.label, capacity: cap(fnCap) }];
+}
 
 /* ---------- server ---------- */
 const cache = {};
@@ -99,19 +116,30 @@ async function getPublic(from, to) {
     finally { clearTimeout(timer); }
     if (!data || data.ok !== true) throw new Error((data && data.error) || "Can't load the diary just now. Try again in a minute.");
   }
+  // taken has every room. A server from before the tea room sends only roomTaken (the function room).
+  const isObj = x => !!x && typeof x === 'object';
+  const taken = isObj(data.taken) ? data.taken : isObj(data.roomTaken) ? { fn: data.roomTaken } : null;
   // An older server has no room information. Never guess that dates are free.
-  if (!data.roomTaken || typeof data.roomTaken !== 'object') throw new Error("Function room dates aren't available just now. Please try again later.");
-  // Remember room information for every date in the range, booked or not
-  for (let d = from; d <= to; d = R.addDays(d, 1)) { S.known.add(d); delete S.taken[d]; }
-  Object.keys(data.roomTaken || {}).forEach(d => { S.taken[d] = data.roomTaken[d]; });
+  if (!taken) throw new Error("Room hire dates aren't available just now. Please try again later.");
   if (data.rules) {
     const r = data.rules;
     if (/^\d{4}-\d{2}-\d{2}$/.test(r.today || '')) S.today = r.today;
-    S.rules = { capacity: +r.capacity || R.MAX_GUESTS, termsUrl: /^https:\/\//.test(r.termsUrl || '') ? r.termsUrl : '',
+    S.rooms = readRooms(r.rooms, r.capacity);
+    S.rules = { termsUrl: /^https:\/\//.test(r.termsUrl || '') ? r.termsUrl : '',
       minNotice: +r.minNotice || R.MIN_NOTICE, maxMonths: +r.maxMonths || R.MAX_MONTHS,
       shortNoticeType: r.shortNoticeType || R.SHORT_NOTICE_TYPE, types: Array.isArray(r.types) && r.types.length ? r.types.map(String) : R.TYPES,
       privacyContact: String(r.privacyContact || '').slice(0, 120) };
   }
+  // Only offer rooms we have information for
+  S.rooms = S.rooms.filter(r => isObj(taken[r.key]));
+  if (!S.rooms.length) throw new Error("Room hire dates aren't available just now. Please try again later.");
+  // Remember room information for every date in the range, booked or not
+  S.rooms.forEach(r => {
+    const m = S.taken[r.key] || (S.taken[r.key] = {});
+    for (let d = from; d <= to; d = R.addDays(d, 1)) delete m[d];
+    Object.keys(taken[r.key]).forEach(d => { m[d] = taken[r.key][d]; });
+  });
+  for (let d = from; d <= to; d = R.addDays(d, 1)) S.known.add(d);
   cache[key] = { t: Date.now(), data };
   return data;
 }
@@ -181,12 +209,12 @@ function renderLegend() {
       h('i'), CATS[k].label)));
 }
 
+/** Free: every session in every room. Some free: at least one. Booked: nothing left. The day panel shows each room. */
 function roomChip(d) {
   if (d < earliest() || d > latest() || !S.known.has(d)) return null;
-  const f = freeSessions(d);
-  if (f.length === 2) return h('span', { class: 'room free' }, 'Free');
-  if (f.length === 1) return h('span', { class: 'room part', title: (f[0] === 'aft' ? 'Afternoon' : 'Evening') + ' free' },
-    h('span', { class: 'long' }, (f[0] === 'aft' ? 'Afternoon' : 'Evening') + ' free'), h('span', { class: 'short' }, f[0] === 'aft' ? 'Aft free' : 'Eve free'));
+  const f = freeCount(d);
+  if (f === S.rooms.length * 2) return h('span', { class: 'room free' }, 'Free');
+  if (f > 0) return h('span', { class: 'room part' }, 'Some free');
   return h('span', { class: 'room booked' }, 'Booked');
 }
 
@@ -197,11 +225,11 @@ function renderGrid() {
     const d = R.addDays(start, i);
     const dt = parse(d);
     const evs = S.events.filter(e => e.date === d && shown(e)).sort(byTime);
-    const bookable = d >= earliest() && d <= latest() && S.known.has(d) && freeSessions(d).length > 0;
+    const bookable = d >= earliest() && d <= latest() && S.known.has(d) && freeCount(d) > 0;
     const chip = roomChip(d);
     out.push(h('button', {
       class: 'day' + (dt.getMonth() !== S.m ? ' out' : '') + (d === S.today ? ' today' : '') + (d === S.sel ? ' sel' : '') + (bookable ? ' roomfree' : '') + (d < S.today ? ' past' : ''),
-      'aria-label': nice(d) + ', ' + evs.length + (evs.length === 1 ? ' event' : ' events') + (chip ? ', function room: ' + (chip.title || chip.textContent).toLowerCase() : ''),
+      'aria-label': nice(d) + ', ' + evs.length + (evs.length === 1 ? ' event' : ' events') + (chip ? ', room hire: ' + chip.textContent.toLowerCase() : ''),
       'aria-pressed': String(d === S.sel),
       onclick: () => selectDate(d)
     },
@@ -235,33 +263,37 @@ function renderSide() {
 function dayCard() {
   const d = S.sel;
   const evs = S.events.filter(e => e.date === d && shown(e)).sort(byTime);
-  const slots = [];
+  const rooms = [];
   let note = null;
   if (d < S.today) note = 'This date has passed.';
-  else if (d > latest()) note = 'We take function room requests up to ' + S.rules.maxMonths + ' months ahead.';
+  else if (d > latest()) note = 'We take room hire requests up to ' + S.rules.maxMonths + ' months ahead.';
   else if (!S.known.has(d)) note = S.loading ? 'Loading…' : '';
   else {
     const wakeOnly = d < earliest();
     if (wakeOnly) note = d === S.today
       ? 'For anything today, please ring the club.'
-      : 'We need ' + S.rules.minNotice + " days' notice for the function room. For a funeral wake you can still send a request.";
+      : 'We need ' + S.rules.minNotice + " days' notice for room hire. For a funeral wake you can still send a request.";
     if (d !== S.today) {
-      ['aft', 'eve'].forEach(s => {
-        const free = R.canAsk(takenOn(d), s);
-        slots.push(h('div', { class: 'slot' },
+      // Each room has its own sessions: one can be booked while the other is free
+      S.rooms.forEach(r => {
+        const slots = ['aft', 'eve'].map(s => h('div', { class: 'slot' },
           h('div', null, h('b', null, R.SESSIONS[s].label), h('span', null, R.SESSIONS[s].time)),
-          free ? h('button', { class: 'btn small', onclick: () => openForm(d, s, wakeOnly ? S.rules.shortNoticeType : '') }, wakeOnly ? 'Request a wake' : 'Request')
+          R.canAsk(takenOn(r.key, d), s)
+            ? h('button', { class: 'btn small', 'aria-label': (wakeOnly ? 'Request a wake: ' : 'Request: ') + r.label.toLowerCase() + ', ' + R.SESSIONS[s].label.toLowerCase(),
+                onclick: () => openForm(d, r.key, s, wakeOnly ? S.rules.shortNoticeType : '') }, wakeOnly ? 'Request a wake' : 'Request')
             : h('span', { class: 'tag' }, 'Booked')));
+        rooms.push(h('div', { class: 'roomslots' }, h('p', { class: 'label' }, r.label), h('div', { class: 'slots' }, slots)));
       });
     }
   }
+  const roomsText = e => Array.isArray(e.rooms) && e.rooms.length ? e.rooms.filter(k => R.ROOMS[k]).map(k => R.ROOMS[k].label).join(' and ') + ' · ' : '';
   return h('div', { class: 'card', id: 'dayCard' },
     h('h3', null, nice(d)),
     note ? h('p', { class: 'sub' }, note) : null,
-    slots.length ? h('div', null, h('p', { class: 'label' }, 'Function room'), h('div', { class: 'slots' }, slots)) : null,
+    rooms.length ? h('div', { class: 'roomsgrid' }, rooms) : null,
     evs.length ? h('ul', { class: 'list', style: 'margin-top:14px' }, evs.map(e => h('li', { class: 'item' },
       h('span', { class: 'bar', c: CATS[e.cat].c }),
-      h('div', null, h('div', { class: 'ttl' }, e.title), h('div', { class: 'meta' }, timeText(e))))))
+      h('div', null, h('div', { class: 'ttl' }, e.title), h('div', { class: 'meta' }, (e.cat === 'room' ? roomsText(e) : '') + timeText(e))))))
       : h('p', { class: 'empty', style: 'margin-top:12px' }, 'No public events on this day.'));
 }
 
@@ -271,9 +303,21 @@ function rulesList() {
     h('li', null, 'Afternoon is 12pm to 5pm. Evening is 6pm to midnight. Whole day is both.'),
     h('li', null, 'Please ask at least ' + S.rules.minNotice + " days ahead. Funeral wakes can be shorter notice."),
     h('li', null, 'We take requests up to ' + S.rules.maxMonths + ' months ahead.'),
-    h('li', null, 'The room holds up to ' + S.rules.capacity + ' people, including staff and entertainers.'),
+    h('li', null, capacityText()),
     S.rules.termsUrl ? h('li', null, 'Read the ', h('a', { href: S.rules.termsUrl, target: '_blank', rel: 'noopener' }, 'hire terms'), '.') : null);
 }
+
+/** "Each room holds up to 75 people..." or, if the Settings differ, each room in turn. */
+function capacityText() {
+  const end = ', including staff and entertainers.';
+  const [a, ...rest] = S.rooms;
+  if (!rest.length) return 'The ' + a.label.toLowerCase() + ' holds up to ' + a.capacity + ' people' + end;
+  if (rest.every(r => r.capacity === a.capacity)) return 'Each room holds up to ' + a.capacity + ' people' + end;
+  return 'The ' + a.label.toLowerCase() + ' holds up to ' + a.capacity + ' people' +
+    rest.map(r => ' and the ' + r.label.toLowerCase() + ' up to ' + r.capacity).join('') + end;
+}
+const oneRoom = () => S.rooms.length === 1;
+const hireTitle = () => oneRoom() ? 'Hire the ' + S.rooms[0].label.toLowerCase() : 'Hire a room';
 
 /** UK GDPR: who holds the details, why, who sees them, how long, and who to ask. */
 function privacyNote() {
@@ -289,12 +333,13 @@ function privacyNote() {
 
 function ctaCard() {
   return h('div', { class: 'card cta' },
-    h('h3', null, 'Hire the function room'),
-    h('p', { class: 'sub' }, 'For parties, christenings, wakes, meetings and more. Pick a free date and send us a request.'),
+    h('h3', null, hireTitle()),
+    h('p', { class: 'sub' }, (oneRoom() ? '' : 'The function room and the tea room are hired separately. ') +
+      'For parties, christenings, wakes, meetings and more. Pick a free date and send us a request.'),
     rulesList(),
     h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn gold', onclick: () => {
-      const d = S.sel >= earliest() && S.sel <= latest() && freeSessions(S.sel).length ? S.sel : '';
-      openForm(d, d ? freeSessions(d)[0] : '', '');
+      const f = S.sel >= earliest() && S.sel <= latest() && S.known.has(S.sel) ? firstFree(S.sel) : null;
+      openForm(f ? S.sel : '', f ? f.room : '', f ? f.sess : '', '');
     } }, 'Send a request')));
 }
 
@@ -310,9 +355,11 @@ function comingCard() {
 
 /* ---------- request form ---------- */
 let openedAt = 0;
-function openForm(date, sess, type) {
+function openForm(date, room, sess, type) {
   S.sent = null;
-  S.form = Object.assign({ name: '', phone: '', email: '', guests: '', message: '' }, S.form || {}, { date: date || '', sess: sess || '', type: type || (S.form && S.form.type) || '' });
+  const keepRoom = (S.form && S.form.room) || S.rooms[0].key;
+  S.form = Object.assign({ name: '', phone: '', email: '', guests: '', message: '' }, S.form || {},
+    { date: date || '', room: room || keepRoom, sess: sess || '', type: type || (S.form && S.form.type) || '' });
   openedAt = Date.now();
   ensureDate(S.form.date).then(renderSide);
   renderSide();
@@ -320,11 +367,13 @@ function openForm(date, sess, type) {
   const card = $('formCard'); if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
-const FIELD_FOR = [[/name/i, 'rName'], [/phone/i, 'rPhone'], [/email/i, 'rEmail'], [/session|booked that/i, 'rSess-aft'], [/type of event/i, 'rType'],
+const FIELD_FOR = [[/choose a room/i, 'rRoom-fn'], [/name/i, 'rName'], [/phone/i, 'rPhone'], [/email/i, 'rEmail'], [/session|booked that/i, 'rSess-aft'], [/type of event/i, 'rType'],
   [/guests|holds up to/i, 'rGuests'], [/date|notice|wake|months ahead/i, 'rDate']];
 
 function formCard() {
   const F = S.form;
+  if (!S.rooms.some(r => r.key === F.room)) F.room = S.rooms[0].key;
+  const room = roomInfo(F.room);
   const err = h('p', { class: 'err', id: 'rErr', role: 'alert', hidden: true });
   const field = (id, label, input, hint) => h('div', { class: 'f' + (input.tagName === 'TEXTAREA' ? ' full' : '') }, h('label', { for: id }, label), input, hint ? h('span', { class: 'hint' }, hint) : null);
   const keep = (k) => e => { F[k] = e.target.value; };
@@ -337,14 +386,18 @@ function formCard() {
   const type = h('select', { id: 'rType', onchange: e => { F.type = e.target.value; renderSide(); } },
     h('option', { value: '', selected: !F.type }, 'Choose…'),
     S.rules.types.map(t => h('option', { value: t, selected: t === F.type }, t)));
-  const guests = h('input', { id: 'rGuests', type: 'number', inputmode: 'numeric', min: '1', max: String(S.rules.capacity), value: F.guests, placeholder: 'Up to ' + S.rules.capacity, oninput: keep('guests') });
+  const guests = h('input', { id: 'rGuests', type: 'number', inputmode: 'numeric', min: '1', max: String(room.capacity), value: F.guests, placeholder: 'Up to ' + room.capacity, oninput: keep('guests') });
   const message = h('textarea', { id: 'rMsg', maxlength: '1000', placeholder: 'Catering, music, timings, anything we should know', oninput: keep('message') }, F.message);
   // Spam trap: hidden from people, but simple bots fill it in
   const trap = h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'rWebsite' }, 'Leave this empty'), h('input', { id: 'rWebsite', tabindex: '-1', autocomplete: 'off' }));
 
+  // Room choice, shown only when there is more than one. Changing it redraws the sessions free in that room.
+  const roomOpts = S.rooms.map(r => h('label', { class: 'sopt' },
+    h('input', { type: 'radio', name: 'rRoom', id: 'rRoom-' + r.key, value: r.key, checked: F.room === r.key, onchange: () => { F.room = r.key; renderSide(); } }),
+    h('span', null, h('b', null, r.label), h('span', null, 'Up to ' + r.capacity + ' people'))));
   const known = !F.date || S.known.has(F.date);
   const sessOpts = ['aft', 'eve', 'day'].map(s => {
-    const ok = !F.date || !known || R.canAsk(takenOn(F.date), s);
+    const ok = !F.date || !known || R.canAsk(takenOn(F.room, F.date), s);
     if (!ok && F.sess === s) F.sess = '';
     return h('label', { class: 'sopt' + (ok ? '' : ' off') },
       h('input', { type: 'radio', name: 'rSess', id: 'rSess-' + s, value: s, disabled: !ok, checked: F.sess === s, onchange: () => { F.sess = s; } }),
@@ -356,6 +409,7 @@ function formCard() {
     field('rName', 'Your name', name),
     field('rPhone', 'Phone', phone),
     h('div', { class: 'f full' }, h('label', { for: 'rEmail' }, 'Email'), email),
+    oneRoom() ? null : h('fieldset', { class: 'f full sessfield' }, h('legend', null, 'Room'), h('div', { class: 'sessopts rooms' }, roomOpts)),
     field('rDate', 'Date', date),
     field('rType', 'Type of event', type),
     h('fieldset', { class: 'f full sessfield' }, h('legend', null, 'Session'), h('div', { class: 'sessopts' }, sessOpts)),
@@ -369,19 +423,19 @@ function formCard() {
 
   form.addEventListener('submit', async ev => {
     ev.preventDefault();
-    const body = { name: name.value, phone: phone.value, email: email.value, date: date.value, sess: F.sess, type: type.value,
+    const body = { name: name.value, phone: phone.value, email: email.value, room: F.room, date: date.value, sess: F.sess, type: type.value,
       guests: guests.value, message: message.value, website: $('rWebsite').value, elapsed: Date.now() - openedAt, deviceId: deviceId() };
     const show = (msg) => {
       err.textContent = msg; err.hidden = false;
       const hit = FIELD_FOR.find(([re]) => re.test(msg));
       if (hit && $(hit[1])) $(hit[1]).focus();
     };
-    try { R.validate(body, S.today, S.rules.capacity); } catch (e) { return show(e.message); }
-    if (S.known.has(body.date) && !R.canAsk(takenOn(body.date), body.sess)) return show('Sorry, the function room is already booked that ' + R.SESSIONS[body.sess].label.toLowerCase() + '. Please choose another date or session.');
+    try { R.validate(body, S.today, capacities()); } catch (e) { return show(e.message); }
+    if (S.known.has(body.date) && !R.canAsk(takenOn(body.room, body.date), body.sess)) return show('Sorry, the ' + roomLower(body.room) + ' is already booked that ' + R.SESSIONS[body.sess].label.toLowerCase() + '. Please choose another date, session or room.');
     err.hidden = true; submit.disabled = true; submit.textContent = 'Sending…';
     try {
       const r = await sendRequest(body);
-      S.sent = { ref: r.ref || '', emailed: !!r.emailed, date: body.date, sess: body.sess };
+      S.sent = { ref: r.ref || '', emailed: !!r.emailed, date: body.date, sess: body.sess, room: body.room };
       S.form = null;
       renderSide();
       const c = $('sentCard'); if (c) { c.scrollIntoView({ block: 'start', behavior: 'smooth' }); c.focus({ preventScroll: true }); }
@@ -389,7 +443,7 @@ function formCard() {
   });
 
   return h('div', { class: 'card', id: 'formCard' },
-    h('h3', null, 'Ask to hire the function room'),
+    h('h3', null, oneRoom() ? 'Ask to hire the ' + room.label.toLowerCase() : 'Ask to hire a room'),
     h('p', { class: 'sub' }, 'Fill this in and the committee will get back to you. Nothing is booked until they confirm.'),
     form);
 }
@@ -400,7 +454,7 @@ function sentCard() {
     h('div', { class: 'tick', 'aria-hidden': 'true' }, '✓'),
     h('h3', null, 'Request sent'),
     h('p', { class: 'big' }, 'This is a request, not a confirmed booking. The committee will be in touch.'),
-    s.ref ? h('p', { class: 'sub' }, nice(s.date) + ', ' + R.SESSIONS[s.sess].label.toLowerCase() + '. Your reference is ', h('b', null, s.ref), '.') : null,
+    s.ref ? h('p', { class: 'sub' }, roomInfo(s.room).label + ', ' + nice(s.date) + ', ' + R.SESSIONS[s.sess].label.toLowerCase() + '. Your reference is ', h('b', null, s.ref), '.') : null,
     s.ref && s.emailed ? h('p', { class: 'sub' }, "We've emailed you a copy. If you can't see it, check your junk folder.") : null,
     h('div', { class: 'row' }, h('button', { class: 'btn line', onclick: () => { S.sent = null; renderSide(); } }, 'Done')));
 }

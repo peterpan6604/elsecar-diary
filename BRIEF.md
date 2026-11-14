@@ -7,7 +7,7 @@ Source of truth for the build. Update this file when a decision changes.
 A shared diary for Elsecar Sports & Social Club:
 
 - **Committee and staff** (about 10 people) see and edit everything, using **one shared code** (no individual PINs, no Google logins).
-- **The public** see what's on and which dates the **function room** is free, and can **request a booking**. There's no deposit and no payment.
+- **The public** see what's on and which sessions the **function room** and the **tea room** are free, and can **request a booking** for either room. There's no deposit and no payment.
 - **Play-Cricket** fixtures for Elsecar CC load in automatically.
 - Embedded on the club website **elsecarcc.co.uk** (a Google Site).
 
@@ -20,13 +20,24 @@ Clickable mock-up: https://claude.ai/artifact/TtnaBV9yYDY44d6ZJBkP4C
 | Account | Everything runs on the `elsecarsportsandsocialclub1854` Google account, same as the clocking system |
 | Access | One shared code. Each person types their first name, which is used only for the change log. Logged in for 30 days. Changing the code logs everyone out |
 | Committee entry point | Separate link saved to phone home screens, plus a small "Committee" link on the website |
-| Public bookings | Function room only. **Request and approve** (changed 7 Nov 2026, see "Booking request rules" below). Replaces the instant booking agreed on 1 Nov 2026 |
+| Public bookings | Function room, and the **tea room** from 14 Nov 2026. **Request and approve** (changed 7 Nov 2026, see "Booking request rules" below). Replaces the instant booking agreed on 1 Nov 2026 |
 | Deposit | None |
 | Prices | None yet; a price list comes later |
 | Booking alerts | Emailed to **all** committee addresses (listed in the Settings tab) |
 | Public label for an approved booking | **"Private party"** (no names or details) |
-| Clash checks | Function room bookings only. Cricket fixtures never clash (separate venue) |
+| Clash checks | Room bookings only, and each room separately. Cricket fixtures never clash (separate venue) |
 | Existing diary to migrate | None |
+
+## Tea room (decided 14 Nov 2026)
+
+Pete decided on 14 Nov 2026 to add the **tea room** as a second room the public can hire.
+
+- It is a **separate room**. The function room and the tea room each have their own availability, so different people can hire each one on the same day and session.
+- Capacity **75**, the same as the function room. It has its own Settings row, **Tea room capacity**, so it can be lowered later without code. Blank means 75. It can never go above 75.
+- **Same rules** as the function room: the same sessions, notice, furthest ahead, approve or decline, bar cover reminder, clash checks and emails. Emails, diary titles and committee cards name the room.
+- Committee items have a **"Uses the tea room"** tick next to "Uses the function room". Each tick blocks public requests for that room only. Room hire items must have at least one room ticked.
+- Everything made before the tea room (Bookings rows with no Room, and calendar events with no tea room tag) counts as the **function room**.
+- On the public page each day shows the two rooms with their own sessions. The calendar shows **Free** (both rooms fully free), **Some free** or **Booked** (nothing left in either room).
 
 ## Booking request rules (decided 7 Nov 2026)
 
@@ -35,10 +46,10 @@ Pete decided on 7 Nov 2026 to use **request and approve** instead of instant boo
 **Sessions:** Afternoon 12pm to 5pm, Evening 6pm to midnight, or Whole day (both). Two bookings a day are possible.
 
 **Flow:**
-1. On the public page the customer picks a date and session and fills in the request form: name, phone, email, date, session, type of event, guest numbers and a message.
+1. On the public page the customer picks a room, date and session and fills in the request form: name, phone, email, room, date, session, type of event, guest numbers and a message.
 2. The request is saved in the Bookings tab as **Pending**. The customer gets an email saying it is a request, not a booking. Every committee address in Settings gets an alert (no contact details in it).
-3. A pending request does **not** block the session on the public page. The committee page shows a clash warning if two requests, or a request and a booking, want the same session.
-4. **Approve** (committee page): the server checks the session is still free, adds a "Private party" event (room tag, no contact details) and a **bar cover reminder** (Bar & staffing, same session) to the diary, and emails the customer a confirmation with the hire terms link from Settings (or says the club will send the terms).
+3. A pending request does **not** block the session on the public page. The committee page shows a clash warning if two requests, or a request and a booking, want the same session in the same room.
+4. **Approve** (committee page): the server checks the session is still free in that room, adds a "Private party (function room)" or "Private party (tea room)" event (room tags, no contact details; the public see only "Private party") and a **bar cover reminder** (Bar & staffing, same session) to the diary, and emails the customer a confirmation with the hire terms link from Settings (or says the club will send the terms).
 5. **Decline** (committee page): optional reason, emailed to the customer.
 6. **Cancel** an approved booking (committee page): reason required, emailed to the customer. The booking and its bar cover reminder are removed from the diary.
 
@@ -48,14 +59,14 @@ Pete decided on 7 Nov 2026 to use **request and approve** instead of instant boo
 |---|---|
 | Minimum notice | 7 days. Funeral wakes can be requested from tomorrow |
 | Furthest ahead | 12 months |
-| Guests | Maximum 75 (fire limit). The Settings tab can lower it, never raise it |
-| Session must be free | No approved booking and no committee item ticked "Uses the function room" |
+| Guests | Maximum 75 in each room (fire limit). The Settings tab can lower either room ("Room capacity" for the function room, "Tea room capacity"), never raise it |
+| Session must be free | In the room asked for: no approved booking of that room and no committee item ticked "Uses the function room" or "Uses the tea room" for it |
 | Spam | Hidden spam field, a 3 second minimum to fill in the form, 3 requests per device and 20 club-wide every 6 hours, 2 open requests per email address. The acknowledgement email holds only the club's own wording (no name or anything typed) |
 | Email allowance | New requests are refused when fewer than 30 emails are left for the day, keeping them for approve, decline and cancel. A failed email shows as "Needs attention" on the committee page |
 | Past requests | A pending request whose date has passed stays in Needs approval with Decline only, so every customer gets a reply |
 | Online bookings in the diary | Can't be edited or deleted as ordinary items. Use Cancel so the customer is told |
 | Contact details | In the Bookings tab and on the signed-in committee page only. Removed 6 months after the event, or 30 days after a decline (monthly job). A privacy notice on the form says this, with the "Privacy contact" from Settings |
-| Committee room items | Ticking "Uses the function room" on a session a customer has booked is refused by the server |
+| Committee room items | Ticking "Uses the function room" or "Uses the tea room" on a session a customer has booked in that room is refused by the server |
 | Sessions | An item takes a session only if it overlaps it. A 9am to 12 noon item blocks nothing bookable |
 
 ## Architecture
@@ -69,7 +80,7 @@ elsecarcc.co.uk (Google Site) ── embeds ──► Diary page (GitHub Pages)
                                 ├─ Google Sheet "Club Diary Admin"
                                 │    Bookings (customer contact details, status)
                                 │    Change log (who changed what)
-                                │    Settings (alert emails, room capacity, hire terms)
+                                │    Settings (alert emails, room capacities, hire terms)
                                 ├─ Emails sent from the club account
                                 └─ Daily 6am job: Play-Cricket API → calendar
 ```
@@ -107,12 +118,13 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 | 1 | Backend: calendar, sheet, login, read, add/edit/delete, change log, public read | **Live** on the club account (`apps-script/Code.gs`, `SETUP.md`) |
 | 2 | Committee view (real page from the mock-up), phone subscription and guide | **Live** on GitHub Pages (`committee.html`, `COMMITTEE-GUIDE.md`) |
 | 3 | Public view, booking **requests** by session, committee approve / decline / cancel, emails, bar cover, spam protection, data clean-up | **Built on branch `stage3-requests`, tested in demo mode, not yet live.** `index.html` (try `?demo=1`), `EMBED.md`. Needs the new `Code.gs` pasted in, `setupStage3` run, and a review before release |
+| 3b | Tea room as a second hireable room | **Built on branch `tea-room`, tested in demo mode, not yet live.** Needs the new `Code.gs` pasted in, `setupStage3` run again and the pages pushed (SETUP.md, step 10) |
 | 4 | Play-Cricket daily sync | To do (needs the token) |
 | 5 | Embed on the website, committee test, security check, handover notes | To do |
 
 ## Open items
 
 - Play-Cricket API token and site ID: Pete is chasing these.
-- Room capacity: **75** (confirmed 1 Nov 2026).
+- Room capacity: **75** (confirmed 1 Nov 2026). Tea room capacity: **75** (Pete, 14 Nov 2026).
 - Hire terms: draft in `HIRE-TERMS.md`. The committee needs to fill in the **[confirm]** items. Once agreed, put its web link in the Settings tab ("Hire terms link"). It then shows on the request form and in confirmation emails.
 - Committee emails: Pete is dropping the list into `private/` (excluded from git).
