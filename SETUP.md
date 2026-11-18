@@ -176,7 +176,7 @@ Do this **after** Pete has said payments can go live. About 30 minutes. Do the s
 
 ## 12. Play-Cricket fixtures (stage 4)
 
-Do this **after** Pete has said the Play-Cricket sync can go live. Signed in as the club account. About 15 minutes. Nothing here changes the calendar until step 6.
+Do this **after** Pete has said the Play-Cricket sync can go live. Signed in as the club account. About 15 minutes. Nothing here changes the calendar until step 5.
 
 **What it does:** every morning at about 6am the diary asks Play-Cricket for all Elsecar CC fixtures (every team, home and away) for this season and next, and keeps the calendar in step. New fixtures are added, changed times are updated, and cancelled or removed matches are taken out. They show as **Cricket** items, public, with the ground as the location. It only ever changes items it made itself. Everything else in the calendar is left alone. No umpire, scorer or player names are copied across.
 
