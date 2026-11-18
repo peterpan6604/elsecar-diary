@@ -135,18 +135,18 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 
 | # | Stage | Status |
 |---|---|---|
-| 0 | Club prep: Play-Cricket API token and site ID, committee emails, room capacity, hire terms, choose the code | **Waiting on club** |
+| 0 | Club prep: Play-Cricket API token and site ID, committee emails, room capacity, hire terms, choose the code | Token and site ID done. Committee emails and hire terms still open |
 | 1 | Backend: calendar, sheet, login, read, add/edit/delete, change log, public read | **Live** on the club account (`apps-script/Code.gs`, `SETUP.md`) |
 | 2 | Committee view (real page from the mock-up), phone subscription and guide | **Live** on GitHub Pages (`committee.html`, `COMMITTEE-GUIDE.md`) |
 | 3 | Public view, booking **requests** by session, committee approve / decline / cancel, emails, bar cover, spam protection, data clean-up | **Live** |
 | 3b | Tea room as a second hireable room | **Live** |
 | 3c | £52 payment by Stripe Payment Link, refunds, capacities 80 and 50, hire terms page (`hire-terms.html`) | **Built on branch `payments`, tested in demo mode, not yet live.** SETUP.md step 11 |
-| 4 | Play-Cricket daily sync | To do (needs the token) |
+| 4 | Play-Cricket daily sync (site ID 2558, all teams, this season and next) | **Built on branch `play-cricket-sync`, tested against the real feed in a dry run, not yet live.** SETUP.md step 12. Pete switches the 6am trigger on |
 | 5 | Embed on the website, committee test, security check, handover notes | To do |
 
 ## Open items
 
-- Play-Cricket API token and site ID: Pete is chasing these.
+- Play-Cricket API token: received (kept in `C:UsersHPkeys`, goes into Script Properties only). Site ID is 2558. Fixtures for 2027 are not published yet, so the first sync after go-live adds nothing until the league publishes them.
 - Room capacity: function room **80**, tea room **50** (Pete, 14 Nov 2026).
 - Hire terms: `HIRE-TERMS.md` and the web page `hire-terms.html` (keep the two the same). The committee are happy with them in general. Still to confirm: set up access time, one free date move and its notice, tea room kitchen use, false alarm charge, parking and taxis (marked **[confirm]**). Music ends 11.30pm and guests leave by midnight (Pete, 14 Nov 2026), which matches the evening session ending at midnight.
 - Stripe: the club's Stripe account and the £52 Payment Link (Pete, SETUP.md step 11).

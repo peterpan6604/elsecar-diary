@@ -173,3 +173,32 @@ Do this **after** Pete has said payments can go live. About 30 minutes. Do the s
 **If anything goes wrong with the Payment link:** clear the **Payment link** cell. Confirmation emails then say "The club will be in touch about how to pay it", and nothing else changes.
 
 **Bookings approved before this update** got the old email with no payment link. Contact those customers yourself about the £52, or decide not to charge them.
+
+## 12. Play-Cricket fixtures (stage 4)
+
+Do this **after** Pete has said the Play-Cricket sync can go live. Signed in as the club account. About 15 minutes. Nothing here changes the calendar until step 6.
+
+**What it does:** every morning at about 6am the diary asks Play-Cricket for all Elsecar CC fixtures (every team, home and away) for this season and next, and keeps the calendar in step. New fixtures are added, changed times are updated, and cancelled or removed matches are taken out. They show as **Cricket** items, public, with the ground as the location. It only ever changes items it made itself. Everything else in the calendar is left alone. No umpire, scorer or player names are copied across.
+
+**Cost:** nothing. Play-Cricket's feed is free with the club's token, and the job uses a few seconds of the free Google allowance.
+
+**If Play-Cricket can't be reached** (or the token stops working), the calendar is left exactly as it was and a **Needs attention** row appears in the Change log and on the committee page.
+
+Fixtures are not published for a new season until the league publishes them, usually early the next year. Until then there is nothing new to add. That is normal.
+
+1. Open the **Club Diary** Apps Script project. In `Code.gs`, select everything, delete it, and paste in the new `apps-script/Code.gs`. Save (Ctrl+S).
+2. **Project Settings** (the cog) → **Script Properties** → **Add script property**. Add two:
+   - `PLAYCRICKET_TOKEN`: the Play-Cricket API token. It is the long code in `C:\Users\HP\keys\Elsecar CC.txt` (just the code, nothing before or after it). Do not paste it into a chat or the code.
+   - `PLAYCRICKET_SITE_ID`: `2558` (Elsecar CC's Play-Cricket club number).
+   - **Save script properties**.
+3. **Try it without changing anything.** In the function drop-down choose **dryRunPlayCricket** and click **Run**.
+   - Google asks for permission because the diary can now contact another website. Choose the club account → **Advanced** → **Go to Club Diary (unsafe)** → **Allow**.
+   - Open **Execution log**. It should say "DRY RUN, nothing changed. Play-Cricket: N fixtures (N to create...)" and list the first few. If it says "Play-Cricket sync did not run", read the reason. "check PLAYCRICKET_TOKEN" means the token was pasted wrongly.
+4. Redeploy: **Deploy** → **Manage deployments** → pencil → Version: **New version** → **Deploy**. Never "New deployment". Check `<exec-url>?action=ping` still shows `{"ok":true,...}`.
+5. **First real run:** choose **syncPlayCricket** and click **Run**. The log says how many fixtures were created. Open the Club Diary calendar and the committee page and check a few against Play-Cricket. The Change log gets a "Synced fixtures" row.
+6. **Switch on the 6am job:** choose **setupPlayCricketTrigger** and click **Run**. The log says "created". You can see it under **Triggers** (alarm clock icon). Running it twice does no harm.
+7. Tell the committee that fixtures now come from Play-Cricket. If a fixture is wrong, change it in Play-Cricket and the diary follows the next morning. Fixtures can't be edited in the diary.
+
+**To switch it off:** in **Triggers**, delete the `syncPlayCricket` trigger. Fixtures already in the calendar stay.
+
+**If the token is changed in Play-Cricket:** edit `PLAYCRICKET_TOKEN` in Script Properties. Nothing else needs doing.

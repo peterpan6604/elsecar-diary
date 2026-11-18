@@ -3,6 +3,7 @@
  * Stage 1 (plus small stage 2 additions: room tick, phone calendar link): committee sign-in, diary read/add/edit/delete, change log, public read.
  * Stage 3: public function room booking requests, committee approve / decline / cancel, emails, monthly clean-up of contact details.
  * Tea room (14 Nov 2026): a second room, hired separately. Each room has its own free sessions, so both can be booked at once.
+ * Stage 4: daily Play-Cricket fixture sync into the calendar (syncPlayCricket, trigger made by setupPlayCricketTrigger).
  * Payments (14 Nov 2026): £52 a booking, paid by a Stripe Payment Link in the confirmation email. No Stripe keys or webhooks:
  *   the link lives in the Settings tab ("Payment link") and the committee check payments in Stripe themselves.
  *   Capacities: function room 80, tea room 50. Hirer cancellation refunds: see refundDue_().
@@ -11,6 +12,7 @@
  * Private settings live in Project Settings → Script Properties:
  *   DIARY_CODE    the shared committee code (add by hand, 6+ characters)
  *   CALENDAR_ID, SHEET_ID, TOKEN_SECRET   filled in by setup()
+ *   PLAYCRICKET_TOKEN, PLAYCRICKET_SITE_ID   Play-Cricket sync (stage 4). Add by hand, see SETUP.md step 12
  * After pasting a new version, run setupStage3() and setupPayments() once from the editor (see SETUP.md).
  */
 
@@ -1199,6 +1201,200 @@ function recentLog_() {
       date: r[4] instanceof Date ? Utilities.formatDate(r[4], TZ, 'yyyy-MM-dd') : String(r[4])
     }))
   };
+}
+
+/* ============ Play-Cricket daily sync (stage 4) ============ */
+// Pulls Elsecar CC's fixtures (every team, home and away) for this season and next into the Club Diary calendar.
+// Script Properties needed (see SETUP.md step 12): PLAYCRICKET_TOKEN and PLAYCRICKET_SITE_ID. Never put them in this file.
+// Safety rules:
+// - Only events this sync made are ever changed or removed: they carry the tags src=play-cricket and pcid=<match id>.
+//   Everything else in the calendar is left alone.
+// - If Play-Cricket can't be reached or sends something odd, nothing in the calendar changes. A "Needs attention" row goes in the Change log.
+// - No personal data: no umpire or scorer names. Only teams, opponent, ground, time and competition.
+// - Fixtures are public (pub=1, cat=cricket), like any other public diary item.
+
+const PC_SRC = 'play-cricket';
+const PC_API = 'https://play-cricket.com/api/v2/matches.json';
+const PC_GONE_STATUSES = ['cancelled', 'canceled', 'postponed', 'abandoned', 'conceded', 'deleted']; // matches no longer happening
+const PC_MAX_REMOVE_FRACTION = 0.5; // refuse to remove more than half the fixtures in one run: more likely a bad feed than real
+
+/** Run by the daily 6am trigger. Never throws: a failure is logged and the calendar is left as it was. */
+function syncPlayCricket() { return syncPlayCricket_(false); }
+
+/** Run by hand from the editor to see what the sync WOULD do. Changes nothing. */
+function dryRunPlayCricket() { return syncPlayCricket_(true); }
+
+/** Creates the daily 6am trigger. Pete runs this once, after the Script Properties are in (SETUP.md step 12). Safe to run twice. */
+function setupPlayCricketTrigger() {
+  const has = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'syncPlayCricket');
+  if (!has) ScriptApp.newTrigger('syncPlayCricket').timeBased().everyDays(1).atHour(6).create();
+  Logger.log('Play-Cricket daily sync trigger: ' + (has ? 'already there' : 'created (runs every day around 6am)') + '.');
+}
+
+function syncPlayCricket_(dry) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    return runPlayCricketSync_(dry);
+  } catch (err) {
+    // Log the kind of problem but never the address (it contains the token)
+    const msg = 'Play-Cricket sync did not run: ' + pcSafeMessage_(err);
+    console.error(msg);
+    if (!dry) needsAttention_(msg, todayIso_());
+    return { ok: false, error: msg };
+  } finally {
+    try { lock.releaseLock(); } catch (e) { /* not held */ }
+  }
+}
+
+function runPlayCricketSync_(dry) {
+  const token = prop_('PLAYCRICKET_TOKEN');
+  const siteId = prop_('PLAYCRICKET_SITE_ID');
+  if (!/^\d{1,8}$/.test(siteId)) throw new Error('PLAYCRICKET_SITE_ID should be a number');
+  const year = Number(todayIso_().slice(0, 4));
+  const seasons = [year, year + 1];
+
+  // 1. Fetch every season first. If any fetch fails we stop here and the calendar is untouched.
+  let matches = [];
+  seasons.forEach(s => { matches = matches.concat(fetchPlayCricketSeason_(token, siteId, s)); });
+  const wanted = {};
+  matches.forEach(m => {
+    const ev = pcMatchToEvent_(m, siteId);
+    if (ev) wanted[ev.pcid] = ev;
+  });
+
+  // 2. What the sync made earlier. The range covers both seasons.
+  const from = new Date(year, 0, 1);
+  const to = new Date(year + 2, 0, 1);
+  const have = {};
+  cal_().getEvents(from, to).forEach(ev => {
+    if (ev.getTag('src') !== PC_SRC) return;
+    const id = ev.getTag('pcid');
+    if (!id) return; // not made by the sync: never touched
+    (have[id] = have[id] || []).push(ev);
+  });
+
+  const toRemove = [];
+  Object.keys(have).forEach(id => { if (!wanted[id]) have[id].forEach(ev => toRemove.push(ev)); });
+  const haveCount = Object.keys(have).length;
+  // A feed that suddenly loses most of the fixtures is more likely a fault than real, so leave the calendar alone
+  if (haveCount >= 6 && toRemove.length > haveCount * PC_MAX_REMOVE_FRACTION) {
+    throw new Error('the feed would remove ' + toRemove.length + ' of ' + haveCount + ' fixtures, which looks wrong, so nothing was changed');
+  }
+
+  let created = 0, updated = 0, same = 0, removed = 0;
+  const preview = [];
+  Object.keys(wanted).sort((a, b) => (wanted[a].date + wanted[a].start).localeCompare(wanted[b].date + wanted[b].start)).forEach(id => {
+    const w = wanted[id];
+    const existing = have[id] || [];
+    if (existing.length > 1) existing.slice(1).forEach(ev => toRemove.push(ev)); // a duplicate from some earlier mishap
+    const ev = existing[0];
+    if (!ev) {
+      created++;
+      preview.push(w);
+      if (!dry) pcWriteEvent_(null, w);
+    } else if (pcDiffers_(ev, w)) {
+      updated++;
+      if (!dry) pcWriteEvent_(ev, w);
+    } else same++;
+  });
+  toRemove.forEach(ev => { removed++; if (!dry) { try { ev.deleteEvent(); } catch (e) { /* already gone */ } } });
+
+  if (!dry && (created || updated || removed)) {
+    bumpCache_();
+    log_('Play-Cricket', 'Synced fixtures', created + ' new, ' + updated + ' changed, ' + removed + ' removed', todayIso_());
+  }
+  const summary = (dry ? 'DRY RUN, nothing changed. ' : '') + 'Play-Cricket: ' + Object.keys(wanted).length + ' fixtures (' + created + ' to create, ' +
+    updated + ' to update, ' + same + ' unchanged, ' + removed + ' to remove).';
+  Logger.log(summary);
+  if (dry) preview.slice(0, 15).forEach(w => Logger.log(w.date + ' ' + (w.start || 'all day') + ' | ' + w.title + ' | ' + (w.home ? 'Home' : 'Away') + ' | ' + w.location));
+  return { ok: true, fixtures: Object.keys(wanted).length, created: created, updated: updated, unchanged: same, removed: removed, summary: summary };
+}
+
+/** One season of matches, or throws. The address holds the token, so it is never logged or put in an error. */
+function fetchPlayCricketSeason_(token, siteId, season) {
+  const url = PC_API + '?site_id=' + encodeURIComponent(siteId) + '&season=' + season + '&api_token=' + encodeURIComponent(token);
+  let res;
+  try { res = UrlFetchApp.fetch(url, { muteHttpExceptions: true }); }
+  catch (e) { throw new Error('could not reach Play-Cricket for ' + season); }
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Play-Cricket answered with code ' + code + ' for ' + season + (code === 401 || code === 403 ? ' (check PLAYCRICKET_TOKEN)' : ''));
+  let body;
+  try { body = JSON.parse(res.getContentText()); } catch (e) { throw new Error('Play-Cricket sent something unreadable for ' + season); }
+  if (!body || !Array.isArray(body.matches)) throw new Error('Play-Cricket reply had no matches list for ' + season);
+  return body.matches;
+}
+
+function pcSafeMessage_(err) {
+  const m = String((err && err.message) || err || 'unknown problem');
+  return m.replace(/api_token=[^&\s"']*/g, 'api_token=x').slice(0, 200);
+}
+
+/** Pure (no Google services). One Play-Cricket match becomes the calendar event we want, or null if it should not be there
+ *  (not Elsecar's, unpublished, cancelled, or missing a usable date). */
+function pcMatchToEvent_(m, siteId) {
+  if (!m || !m.id) return null;
+  const home = String(m.home_club_id) === String(siteId);
+  const away = String(m.away_club_id) === String(siteId);
+  if (!home && !away) return null;
+  if (String(m.published || 'Yes').toLowerCase() === 'no') return null;
+  if (PC_GONE_STATUSES.indexOf(String(m.status || '').trim().toLowerCase()) >= 0) return null;
+  const d = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(m.match_date || ''));
+  if (!d) return null;
+  const date = d[3] + '-' + d[2] + '-' + d[1];
+  const t = /^([01]?\d|2[0-3]):([0-5]\d)/.exec(String(m.match_time || ''));
+  const start = t ? ('0' + t[1]).slice(-2) + ':' + t[2] : '';
+  const side = (isUs, club, team) => {
+    const tm = String(team || '').trim();
+    if (isUs) return /^elsecar/i.test(tm) ? tm : 'Elsecar' + (tm ? ' ' + tm : '');
+    return String(club || '').trim() + (tm ? ' ' + tm : '');
+  };
+  const homeName = side(home, m.home_club_name, m.home_team_name);
+  const awayName = side(away, m.away_club_name, m.away_team_name);
+  // Elsecar side first, so it reads the same at home and away. Two Elsecar sides: home team first.
+  const title = pcClean_((home ? homeName + ' v ' + awayName : awayName + ' v ' + homeName) + (home ? ' (H)' : ' (A)'), 100);
+  const comp = [m.league_name, m.competition_name].map(x => String(x || '').trim()).filter(Boolean).join(', ') || String(m.competition_type || '').trim();
+  const bits = [comp, m.match_type ? String(m.match_type).trim() : '', 'From Play-Cricket. Change it there.'].filter(Boolean);
+  return { pcid: String(m.id), date: date, start: start, title: title, home: home, location: pcClean_(m.ground_name, 200),
+    notes: pcClean_(bits.join('. '), 500) };
+}
+
+function pcClean_(v, max) { return String(v == null ? '' : v).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
+
+/** Start and end Dates for a wanted event. No kick-off time means an all day event.
+ *  Starts before 4pm are treated as a long match (7 hours), later starts as a short one (3.5 hours). */
+function pcTimes_(w) {
+  if (!w.start) {
+    const a = toDate_(w.date, '00:00');
+    const z = toDate_(w.date, '00:00');
+    z.setDate(z.getDate() + 1);
+    return { start: a, end: z, allDay: true };
+  }
+  const a = toDate_(w.date, w.start);
+  const hours = Number(w.start.slice(0, 2)) < 16 ? 7 : 3.5;
+  return { start: a, end: new Date(a.getTime() + hours * 3600000), allDay: false };
+}
+
+function pcDiffers_(ev, w) {
+  const t = pcTimes_(w);
+  return ev.getTitle() !== w.title || (ev.getLocation() || '') !== w.location || (ev.getDescription() || '') !== w.notes ||
+    ev.isAllDayEvent() !== t.allDay || ev.getStartTime().getTime() !== t.start.getTime() ||
+    (!t.allDay && ev.getEndTime().getTime() !== t.end.getTime()) ||
+    ev.getTag('cat') !== 'cricket' || ev.getTag('pub') !== '1' || ev.getTag('home') !== (w.home ? '1' : '0');
+}
+
+function pcWriteEvent_(ev, w) {
+  const t = pcTimes_(w);
+  const opts = { description: w.notes, location: w.location };
+  if (!ev) {
+    ev = t.allDay ? cal_().createAllDayEvent(w.title, t.start, opts) : cal_().createEvent(w.title, t.start, t.end, opts);
+  } else {
+    ev.setTitle(w.title); ev.setDescription(w.notes); ev.setLocation(w.location);
+    if (t.allDay) ev.setAllDayDate(t.start); else ev.setTime(t.start, t.end);
+  }
+  ev.setTag('src', PC_SRC); ev.setTag('pcid', w.pcid); ev.setTag('cat', 'cricket'); ev.setTag('pub', '1');
+  ev.setTag('room', '0'); ev.setTag('tea', '0'); ev.setTag('by', 'Play-Cricket'); ev.setTag('home', w.home ? '1' : '0');
+  return ev;
 }
 
 /* ============ Helpers ============ */
