@@ -1204,7 +1204,7 @@ function recentLog_() {
 }
 
 /* ============ Play-Cricket daily sync (stage 4) ============ */
-// Pulls Elsecar CC's fixtures (every team, home and away) for this season and next into the Club Diary calendar.
+// Pulls Elsecar CC's upcoming fixtures (today or later; every team, home and away) for this season and next into the Club Diary calendar.
 // Script Properties needed (see SETUP.md step 12): PLAYCRICKET_TOKEN and PLAYCRICKET_SITE_ID. Never put them in this file.
 // Safety rules:
 // - Only events this sync made are ever changed or removed: they carry the tags src=play-cricket and pcid=<match id>.
@@ -1257,14 +1257,16 @@ function runPlayCricketSync_(dry) {
   // 1. Fetch every season first. If any fetch fails we stop here and the calendar is untouched.
   let matches = [];
   seasons.forEach(s => { matches = matches.concat(fetchPlayCricketSeason_(token, siteId, s)); });
+  // Future fixtures only: today or later. Finished matches are never added, and past events the sync made earlier are left alone.
+  const today = todayIso_();
   const wanted = {};
   matches.forEach(m => {
     const ev = pcMatchToEvent_(m, siteId);
-    if (ev) wanted[ev.pcid] = ev;
+    if (ev && ev.date >= today) wanted[ev.pcid] = ev;
   });
 
-  // 2. What the sync made earlier. The range covers both seasons.
-  const from = new Date(year, 0, 1);
+  // 2. What the sync made earlier, from today on. The range runs to the end of next season.
+  const from = toDate_(today, '00:00');
   const to = new Date(year + 2, 0, 1);
   const have = {};
   cal_().getEvents(from, to).forEach(ev => {

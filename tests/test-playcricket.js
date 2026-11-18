@@ -25,7 +25,7 @@ function fakeEvent(title, start, end, o) {
 function setup(matchesBySeason, props) {
   const events = [];
   const cal = {
-    getEvents: () => events.filter(e => !e.isGone()),
+    getEvents: (a, b) => events.filter(e => !e.isGone() && e.getStartTime() >= a && e.getStartTime() < b),
     createEvent: (t, s, e, o) => { const ev = fakeEvent(t, s, e, o); events.push(ev); return ev; },
     createAllDayEvent: (t, d, o) => { const ev = fakeEvent(t, d, new Date(d.getTime() + 864e5), Object.assign({ allDay: true }, o)); events.push(ev); return ev; }
   };
@@ -77,7 +77,7 @@ const M = o => Object.assign({ id: 1, status: 'New', published: 'Yes', match_dat
 
 /* create, then re-run: no duplicates */
 {
-  const s = setup({ 2026: [M({ id: 10, match_date: '05/12/2026' })], 2027: [M({ id: 11 }), M({ id: 12, match_time: '' })] });
+  const s = setup({ 2026: [M({ id: 10, match_date: '18/11/2026' })], 2027: [M({ id: 11 }), M({ id: 12, match_time: '' })] });
   const r1 = s.ctx.syncPlayCricket();
   eq([r1.ok, r1.created, s.live().length], [true, 3, 3], 'first run creates three');
   const ev = s.live().find(e => e.getTag('pcid') === '11');
@@ -105,6 +105,22 @@ const M = o => Object.assign({ id: 1, status: 'New', published: 'Yes', match_dat
   const r2 = s.ctx.syncPlayCricket();
   eq([r2.updated, r2.removed, s.live().filter(e => e.getTag('pcid')).length], [1, 1, 1], 'time change updates, cancelled match removed');
   eq(s.live().find(e => e.getTag('pcid') === '11').getStartTime().getHours(), 14, 'moved to 2pm');
+}
+
+/* past fixtures are ignored and past events are left alone */
+{
+  const s = setup({ 2026: [M({ id: 30, match_date: '17/11/2026' }), M({ id: 31, match_date: '18/11/2026' })], 2027: [] });
+  const old = fakeEvent('Old fixture', new Date(2026, 8, 1, 12), new Date(2026, 8, 1, 19)); old.setTag('src', 'play-cricket'); old.setTag('pcid', '555');
+  s.events.push(old);
+  const r = s.ctx.syncPlayCricket();
+  eq([r.created, r.removed, old.isGone()], [1, 0, false], 'yesterday ignored, today added, past event kept');
+  eq(s.live().filter(e => e.getTag('pcid') === '30').length, 0, 'finished match not added');
+  // safety check counts future fixtures only: 7 past ones missing from the feed do not trigger it
+  const s2 = setup({ 2026: [], 2027: [M({ id: 41 })] });
+  const past = [1, 2, 3, 4, 5, 6, 7].map(i => { const e = fakeEvent('P' + i, new Date(2026, 5, i, 12), new Date(2026, 5, i, 19)); e.setTag('src', 'play-cricket'); e.setTag('pcid', String(200 + i)); return e; });
+  s2.events.push(...past);
+  const r2 = s2.ctx.syncPlayCricket();
+  ok(r2.ok && r2.created === 1 && past.every(e => !e.isGone()), 'past events never removed or counted');
 }
 
 /* failures leave the calendar alone */

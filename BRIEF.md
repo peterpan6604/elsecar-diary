@@ -140,7 +140,7 @@ Navy `#1d3557`, gold `#E5A825`, amber `#E8A050`, site blue `#0059C1`, text `#1C1
 | 2 | Committee view (real page from the mock-up), phone subscription and guide | **Live** on GitHub Pages (`committee.html`, `COMMITTEE-GUIDE.md`) |
 | 3 | Public view, booking **requests** by session, committee approve / decline / cancel, emails, bar cover, spam protection, data clean-up | **Live** |
 | 3b | Tea room as a second hireable room | **Live** |
-| 3c | £52 payment by Stripe Payment Link, refunds, capacities 80 and 50, hire terms page (`hire-terms.html`) | **Built on branch `payments`, tested in demo mode, not yet live.** SETUP.md step 11 |
+| 3c | £52 payment by Stripe Payment Link, refunds, capacities 80 and 50, hire terms page (`hire-terms.html`) | **Live** since 14 Nov 2026 (SETUP.md step 11) |
 | 4 | Play-Cricket daily sync (site ID 2558, all teams, this season and next) | **Built on branch `play-cricket-sync`, tested against the real feed in a dry run, not yet live.** SETUP.md step 12. Pete switches the 6am trigger on |
 | 5 | Embed on the website, committee test, security check, handover notes | To do |
 
