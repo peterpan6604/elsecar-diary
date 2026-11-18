@@ -1208,15 +1208,23 @@ function recentLog_() {
 // Script Properties needed (see SETUP.md step 12): PLAYCRICKET_TOKEN and PLAYCRICKET_SITE_ID. Never put them in this file.
 // Safety rules:
 // - Only events this sync made are ever changed or removed: they carry the tags src=play-cricket and pcid=<match id>.
-//   Everything else in the calendar is left alone.
+//   Everything else in the calendar is left alone, and so are past events (history is never touched).
 // - If Play-Cricket can't be reached or sends something odd, nothing in the calendar changes. A "Needs attention" row goes in the Change log.
-// - No personal data: no umpire or scorer names. Only teams, opponent, ground, time and competition.
+// - No personal data: no umpire or scorer names. Only teams, opponent, ground, time and competition. Web links are stripped.
 // - Fixtures are public (pub=1, cat=cricket), like any other public diary item.
+// - Paging: matches.json has no page or limit setting (its documented filters are site, division, cup, team, season,
+//   competition type and entry dates), so one call per season returns the lot. Nothing to page through.
+// - Result codes: matches.json documents only status "New" or "Deleted". If a result code is ever present it is honoured too (PC_GONE_RESULTS).
 
 const PC_SRC = 'play-cricket';
 const PC_API = 'https://play-cricket.com/api/v2/matches.json';
-const PC_GONE_STATUSES = ['cancelled', 'canceled', 'postponed', 'abandoned', 'conceded', 'deleted']; // matches no longer happening
-const PC_MAX_REMOVE_FRACTION = 0.5; // refuse to remove more than half the fixtures in one run: more likely a bad feed than real
+const PC_GONE_STATUSES = ['deleted', 'cancelled', 'canceled', 'postponed', 'abandoned', 'conceded']; // matches no longer happening
+const PC_GONE_RESULTS = ['c', 'a', 'con'];  // result codes: cancelled, abandoned, conceded
+const PC_MAX_REMOVE_FRACTION = 0.5;  // refuse to remove more than half the upcoming fixtures in one run: more likely a bad feed than real
+const PC_MAX_REMOVALS = 20;          // never remove more than this many in one run, whatever the calendar size. The rest go next run
+const PC_BUDGET_MS = 4 * 60 * 1000;  // stop writing after about 4 minutes. The next run carries on
+
+function pcNow_() { return Date.now(); }
 
 /** Run by the daily 6am trigger. Never throws: a failure is logged and the calendar is left as it was. */
 function syncPlayCricket() { return syncPlayCricket_(false); }
@@ -1248,76 +1256,81 @@ function syncPlayCricket_(dry) {
 }
 
 function runPlayCricketSync_(dry) {
+  const t0 = pcNow_();
   const token = prop_('PLAYCRICKET_TOKEN');
   const siteId = prop_('PLAYCRICKET_SITE_ID');
   if (!/^\d{1,8}$/.test(siteId)) throw new Error('PLAYCRICKET_SITE_ID should be a number');
-  const year = Number(todayIso_().slice(0, 4));
-  const seasons = [year, year + 1];
+  const today = todayIso_();
+  const year = Number(today.slice(0, 4));
 
   // 1. Fetch every season first. If any fetch fails we stop here and the calendar is untouched.
   let matches = [];
-  seasons.forEach(s => { matches = matches.concat(fetchPlayCricketSeason_(token, siteId, s)); });
+  [year, year + 1].forEach(s => { matches = matches.concat(fetchPlayCricketSeason_(token, siteId, s)); });
   // Future fixtures only: today or later. Finished matches are never added, and past events the sync made earlier are left alone.
-  const today = todayIso_();
-  const wanted = {};
+  const wanted = Object.create(null);
   matches.forEach(m => {
     const ev = pcMatchToEvent_(m, siteId);
     if (ev && ev.date >= today) wanted[ev.pcid] = ev;
   });
 
   // 2. What the sync made earlier, from today on. The range runs to the end of next season.
-  const from = toDate_(today, '00:00');
-  const to = new Date(year + 2, 0, 1);
-  const have = {};
-  cal_().getEvents(from, to).forEach(ev => {
+  const have = Object.create(null);
+  cal_().getEvents(toDate_(today, '00:00'), new Date(year + 2, 0, 1)).forEach(ev => {
     if (ev.getTag('src') !== PC_SRC) return;
     const id = ev.getTag('pcid');
     if (!id) return; // not made by the sync: never touched
     (have[id] = have[id] || []).push(ev);
   });
+  const haveCount = Object.keys(have).length;
 
+  // 3. Safety checks before anything is written
+  if (matches.length === 0 && haveCount > 0) {
+    throw new Error('Play-Cricket sent no matches at all but the calendar holds ' + haveCount + ' upcoming fixtures, so nothing was changed');
+  }
   const toRemove = [];
   Object.keys(have).forEach(id => { if (!wanted[id]) have[id].forEach(ev => toRemove.push(ev)); });
-  const haveCount = Object.keys(have).length;
-  // A feed that suddenly loses most of the fixtures is more likely a fault than real, so leave the calendar alone
   if (haveCount >= 6 && toRemove.length > haveCount * PC_MAX_REMOVE_FRACTION) {
-    throw new Error('the feed would remove ' + toRemove.length + ' of ' + haveCount + ' fixtures, which looks wrong, so nothing was changed');
+    throw new Error('the feed would remove ' + toRemove.length + ' of ' + haveCount + ' upcoming fixtures, which looks wrong, so nothing was changed');
   }
 
-  let created = 0, updated = 0, same = 0, removed = 0;
+  // 4. Write, within the time budget
+  let created = 0, updated = 0, same = 0, removed = 0, stopped = '';
   const preview = [];
-  Object.keys(wanted).sort((a, b) => (wanted[a].date + wanted[a].start).localeCompare(wanted[b].date + wanted[b].start)).forEach(id => {
-    const w = wanted[id];
-    const existing = have[id] || [];
+  const ids = Object.keys(wanted).sort((a, b) => (wanted[a].date + wanted[a].start).localeCompare(wanted[b].date + wanted[b].start));
+  for (let i = 0; i < ids.length && !stopped; i++) {
+    const w = wanted[ids[i]];
+    const existing = have[w.pcid] || [];
     if (existing.length > 1) existing.slice(1).forEach(ev => toRemove.push(ev)); // a duplicate from some earlier mishap
     const ev = existing[0];
-    if (!ev) {
-      created++;
-      preview.push(w);
-      if (!dry) pcWriteEvent_(null, w);
-    } else if (pcDiffers_(ev, w)) {
-      updated++;
-      if (!dry) pcWriteEvent_(ev, w);
-    } else same++;
-  });
-  toRemove.forEach(ev => { removed++; if (!dry) { try { ev.deleteEvent(); } catch (e) { /* already gone */ } } });
+    if (ev && !pcDiffers_(ev, w)) { same++; continue; }
+    if (!dry && pcNow_() - t0 > PC_BUDGET_MS) { stopped = 'the time limit was reached'; break; }
+    if (!ev) { created++; preview.push(w); if (!dry) pcWriteEvent_(null, w); }
+    else { updated++; if (!dry) pcWriteEvent_(ev, w); }
+  }
+  for (let i = 0; i < toRemove.length && !stopped; i++) {
+    if (removed >= PC_MAX_REMOVALS) { stopped = 'the limit of ' + PC_MAX_REMOVALS + ' removals in one run was reached'; break; }
+    if (!dry && pcNow_() - t0 > PC_BUDGET_MS) { stopped = 'the time limit was reached'; break; }
+    removed++;
+    if (!dry) { try { toRemove[i].deleteEvent(); } catch (e) { /* already gone */ } }
+  }
 
+  const counts = created + ' created, ' + updated + ' updated, ' + removed + ' removed';
   if (!dry && (created || updated || removed)) {
     bumpCache_();
-    log_('Play-Cricket', 'Synced fixtures', created + ' new, ' + updated + ' changed, ' + removed + ' removed', todayIso_());
+    log_('Play-Cricket', 'Synced fixtures', (stopped ? 'partly done: ' + counts + ', then stopped because ' + stopped + ' (the next run carries on)' : counts), today);
   }
-  const summary = (dry ? 'DRY RUN, nothing changed. ' : '') + 'Play-Cricket: ' + Object.keys(wanted).length + ' fixtures (' + created + ' to create, ' +
-    updated + ' to update, ' + same + ' unchanged, ' + removed + ' to remove).';
+  const summary = (dry ? 'DRY RUN, nothing changed. ' : '') + (stopped ? 'Play-Cricket partly done: ' + counts + ', then stopped because ' + stopped + '. ' : 'Play-Cricket: ') +
+    Object.keys(wanted).length + ' upcoming fixtures (' + created + ' to create, ' + updated + ' to update, ' + same + ' unchanged, ' + removed + ' to remove).';
   Logger.log(summary);
   if (dry) preview.slice(0, 15).forEach(w => Logger.log(w.date + ' ' + (w.start || 'all day') + ' | ' + w.title + ' | ' + (w.home ? 'Home' : 'Away') + ' | ' + w.location));
-  return { ok: true, fixtures: Object.keys(wanted).length, created: created, updated: updated, unchanged: same, removed: removed, summary: summary };
+  return { ok: true, partial: !!stopped, fixtures: Object.keys(wanted).length, created: created, updated: updated, unchanged: same, removed: removed, summary: summary };
 }
 
 /** One season of matches, or throws. The address holds the token, so it is never logged or put in an error. */
 function fetchPlayCricketSeason_(token, siteId, season) {
   const url = PC_API + '?site_id=' + encodeURIComponent(siteId) + '&season=' + season + '&api_token=' + encodeURIComponent(token);
   let res;
-  try { res = UrlFetchApp.fetch(url, { muteHttpExceptions: true }); }
+  try { res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: false }); }
   catch (e) { throw new Error('could not reach Play-Cricket for ' + season); }
   const code = res.getResponseCode();
   if (code !== 200) throw new Error('Play-Cricket answered with code ' + code + ' for ' + season + (code === 401 || code === 403 ? ' (check PLAYCRICKET_TOKEN)' : ''));
@@ -1333,22 +1346,25 @@ function pcSafeMessage_(err) {
 }
 
 /** Pure (no Google services). One Play-Cricket match becomes the calendar event we want, or null if it should not be there
- *  (not Elsecar's, unpublished, cancelled, or missing a usable date). */
+ *  (not Elsecar's, unpublished, cancelled or deleted, an odd id, or missing a usable date). */
 function pcMatchToEvent_(m, siteId) {
-  if (!m || !m.id) return null;
+  if (!m || !/^\d{1,12}$/.test(String(m.id))) return null;
   const home = String(m.home_club_id) === String(siteId);
   const away = String(m.away_club_id) === String(siteId);
   if (!home && !away) return null;
   if (String(m.published || 'Yes').toLowerCase() === 'no') return null;
   if (PC_GONE_STATUSES.indexOf(String(m.status || '').trim().toLowerCase()) >= 0) return null;
+  if (PC_GONE_RESULTS.indexOf(String(m.result || '').trim().toLowerCase()) >= 0) return null;
   const d = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(m.match_date || ''));
   if (!d) return null;
   const date = d[3] + '-' + d[2] + '-' + d[1];
+  if (!isRealDate_(date)) return null;
   const t = /^([01]?\d|2[0-3]):([0-5]\d)/.exec(String(m.match_time || ''));
-  const start = t ? ('0' + t[1]).slice(-2) + ':' + t[2] : '';
+  let start = t ? ('0' + t[1]).slice(-2) + ':' + t[2] : '';
+  if (start === '00:00') start = ''; // no real kick-off time: all day
   const side = (isUs, club, team) => {
     const tm = String(team || '').trim();
-    if (isUs) return /^elsecar/i.test(tm) ? tm : 'Elsecar' + (tm ? ' ' + tm : '');
+    if (isUs) return /^elsecar\b/i.test(tm) ? tm : 'Elsecar' + (tm ? ' ' + tm : '');
     return String(club || '').trim() + (tm ? ' ' + tm : '');
   };
   const homeName = side(home, m.home_club_name, m.home_team_name);
@@ -1361,41 +1377,63 @@ function pcMatchToEvent_(m, siteId) {
     notes: pcClean_(bits.join('. '), 500) };
 }
 
-function pcClean_(v, max) { return String(v == null ? '' : v).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
+/** Plain text only: control characters and web links are removed, spaces tidied, length capped. */
+function pcClean_(v, max) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/(?:https?:\/\/|www\.)\S*/gi, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, max);
+}
 
-/** Start and end Dates for a wanted event. No kick-off time means an all day event.
- *  Starts before 4pm are treated as a long match (7 hours), later starts as a short one (3.5 hours). */
+/** Is this moment (milliseconds since 1970, UTC) inside UK summer time? BST runs from 01:00 UTC on the last Sunday of March
+ *  to 01:00 UTC on the last Sunday of October. */
+function pcIsBst_(ms) {
+  const y = new Date(ms).getUTCFullYear();
+  const lastSun = month => { const d = new Date(Date.UTC(y, month + 1, 0, 1)); d.setUTCDate(d.getUTCDate() - d.getUTCDay()); return d.getTime(); };
+  return ms >= lastSun(2) && ms < lastSun(9);
+}
+
+/** The exact moment of a London wall clock time ('2027-04-25', '13:00'), whatever time zone the script is set to. */
+function pcLondon_(date, time) {
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, mi] = time.split(':').map(Number);
+  const wall = Date.UTC(y, m - 1, d, h, mi);
+  const summer = wall - 3600000;
+  return new Date(pcIsBst_(summer) ? summer : wall);
+}
+
+/** Start and end for a wanted event. No kick-off time means an all day event.
+ *  Starts before 4pm London time are treated as a long match (7 hours), later starts as a short one (3.5 hours). */
 function pcTimes_(w) {
   if (!w.start) {
-    const a = toDate_(w.date, '00:00');
-    const z = toDate_(w.date, '00:00');
-    z.setDate(z.getDate() + 1);
-    return { start: a, end: z, allDay: true };
+    const [y, m, d] = w.date.split('-').map(Number);
+    return { start: new Date(y, m - 1, d), end: null, allDay: true };
   }
-  const a = toDate_(w.date, w.start);
+  const a = pcLondon_(w.date, w.start);
   const hours = Number(w.start.slice(0, 2)) < 16 ? 7 : 3.5;
   return { start: a, end: new Date(a.getTime() + hours * 3600000), allDay: false };
 }
 
 function pcDiffers_(ev, w) {
   const t = pcTimes_(w);
-  return ev.getTitle() !== w.title || (ev.getLocation() || '') !== w.location || (ev.getDescription() || '') !== w.notes ||
-    ev.isAllDayEvent() !== t.allDay || ev.getStartTime().getTime() !== t.start.getTime() ||
-    (!t.allDay && ev.getEndTime().getTime() !== t.end.getTime()) ||
-    ev.getTag('cat') !== 'cricket' || ev.getTag('pub') !== '1' || ev.getTag('home') !== (w.home ? '1' : '0');
+  if (ev.getTitle() !== w.title || (ev.getLocation() || '') !== w.location || (ev.getDescription() || '') !== w.notes ||
+      ev.isAllDayEvent() !== t.allDay || ev.getTag('cat') !== 'cricket' || ev.getTag('pub') !== '1') return true;
+  if (t.allDay) return Utilities.formatDate(ev.getStartTime(), TZ, 'yyyy-MM-dd') !== w.date;
+  return ev.getStartTime().getTime() !== t.start.getTime() || ev.getEndTime().getTime() !== t.end.getTime();
 }
 
+/** Writes one fixture. On a new event the identifying tags (src, pcid) go on first, so a stop part way never leaves an
+ *  untagged event. A missing room or tea tag means "no room", so only the four tags that matter are set. */
 function pcWriteEvent_(ev, w) {
   const t = pcTimes_(w);
   const opts = { description: w.notes, location: w.location };
   if (!ev) {
     ev = t.allDay ? cal_().createAllDayEvent(w.title, t.start, opts) : cal_().createEvent(w.title, t.start, t.end, opts);
+    ev.setTag('src', PC_SRC); ev.setTag('pcid', w.pcid);
   } else {
     ev.setTitle(w.title); ev.setDescription(w.notes); ev.setLocation(w.location);
     if (t.allDay) ev.setAllDayDate(t.start); else ev.setTime(t.start, t.end);
   }
-  ev.setTag('src', PC_SRC); ev.setTag('pcid', w.pcid); ev.setTag('cat', 'cricket'); ev.setTag('pub', '1');
-  ev.setTag('room', '0'); ev.setTag('tea', '0'); ev.setTag('by', 'Play-Cricket'); ev.setTag('home', w.home ? '1' : '0');
+  if (ev.getTag('cat') !== 'cricket') ev.setTag('cat', 'cricket');
+  if (ev.getTag('pub') !== '1') ev.setTag('pub', '1');
   return ev;
 }
 

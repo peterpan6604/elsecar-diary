@@ -182,12 +182,19 @@ Do this **after** Pete has said the Play-Cricket sync can go live. Signed in as 
 
 **Cost:** nothing. Play-Cricket's feed is free with the club's token, and the job uses a few seconds of the free Google allowance.
 
+**Only upcoming fixtures** (today or later) are added. Finished matches are not, and nothing already in the calendar from earlier days is ever changed or removed.
+
+**Limits:** one run removes at most 20 fixtures. If a run takes more than about 4 minutes it stops, writes "partly done" in the Change log, and the next morning's run carries on. If Play-Cricket sends no matches at all, or would remove more than half of the upcoming fixtures, nothing is changed and a **Needs attention** row appears.
+
 **If Play-Cricket can't be reached** (or the token stops working), the calendar is left exactly as it was and a **Needs attention** row appears in the Change log and on the committee page.
 
 Fixtures are not published for a new season until the league publishes them, usually early the next year. Until then there is nothing new to add. That is normal.
 
 1. Open the **Club Diary** Apps Script project. In `Code.gs`, select everything, delete it, and paste in the new `apps-script/Code.gs`. Save (Ctrl+S).
-2. **Project Settings** (the cog) → **Script Properties** → **Add script property**. Add two:
+2. **Project Settings** (the cog). Check two things:
+   - **Time zone** says **(GMT+00:00) London** (set in step 1). The fixture times are worked out in London time whatever this says, but the whole diary expects London.
+   - **Deploy** → **Manage deployments**: the only deployment should be the **Web app**. There must be **no** "API Executable" deployment. If there is one, archive it.
+   Then **Script Properties** → **Add script property**. Add two:
    - `PLAYCRICKET_TOKEN`: the Play-Cricket API token. It is the long code in `C:\Users\HP\keys\Elsecar CC.txt` (just the code, nothing before or after it). Do not paste it into a chat or the code.
    - `PLAYCRICKET_SITE_ID`: `2558` (Elsecar CC's Play-Cricket club number).
    - **Save script properties**.

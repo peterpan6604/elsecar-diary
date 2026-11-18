@@ -1,6 +1,7 @@
 // Checks the Play-Cricket sync in apps-script/Code.gs against a pretend calendar and pretend Play-Cricket replies.
 // No network, no token. Run from the repo folder:  node tests/test-playcricket.js
 'use strict';
+process.env.TZ = process.env.TZ || 'Europe/London'; // the checks must give the same answer whatever zone the script runs in
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -40,17 +41,20 @@ function setup(matchesBySeason, props) {
   ctx.log_ = (who, what, item) => logs.push([who, what, item]);
   ctx.needsAttention_ = item => attention.push(item);
   ctx.Logger = { log() {} };
+  ctx.Utilities = { formatDate: (d, tz, f) => d.toLocaleDateString('en-CA', { timeZone: tz }) };
+  ctx.TZ = 'Europe/London';
   ctx.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
   const fetched = [];
-  ctx.UrlFetchApp = { fetch: url => {
-    fetched.push(url);
+  const fetchOpts = [];
+  ctx.UrlFetchApp = { fetch: (url, o) => {
+    fetched.push(url); fetchOpts.push(o);
     const season = /season=(\d+)/.exec(url)[1];
     const r = matchesBySeason[season];
     if (r instanceof Error) throw r;
     if (typeof r === 'number') return { getResponseCode: () => r, getContentText: () => 'nope' };
     return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ matches: r || [] }) };
   } };
-  return { ctx, events, logs, attention, fetched, live: () => events.filter(e => !e.isGone()) };
+  return { ctx, events, logs, attention, fetched, fetchOpts, live: () => events.filter(e => !e.isGone()) };
 }
 
 const M = o => Object.assign({ id: 1, status: 'New', published: 'Yes', match_date: '25/04/2027', match_time: '13:00',
@@ -81,7 +85,9 @@ const M = o => Object.assign({ id: 1, status: 'New', published: 'Yes', match_dat
   const r1 = s.ctx.syncPlayCricket();
   eq([r1.ok, r1.created, s.live().length], [true, 3, 3], 'first run creates three');
   const ev = s.live().find(e => e.getTag('pcid') === '11');
-  eq([ev.getTag('src'), ev.getTag('cat'), ev.getTag('pub'), ev.getTag('room'), ev.getTag('tea')], ['play-cricket', 'cricket', '1', '0', '0'], 'tags');
+  eq([ev.getTag('src'), ev.getTag('cat'), ev.getTag('pub'), ev.getTag('room'), ev.getTag('tea')], ['play-cricket', 'cricket', '1', null, null], 'tags (no room tags, which count as no room)');
+  ok(s.ctx.roomsOfTags_('cricket', ev.getTag('room'), ev.getTag('tea')).length === 0, 'a fixture takes no room');
+  ok(s.fetchOpts.every(o => o.followRedirects === false), 'redirects are not followed');
   ok(s.live().find(e => e.getTag('pcid') === '12').isAllDayEvent(), 'all day event made');
   ok(s.fetched.every(u => u.indexOf('site_id=2558') >= 0) && s.fetched.length === 2, 'asked for this season and next');
   const r2 = s.ctx.syncPlayCricket();
@@ -101,10 +107,10 @@ const M = o => Object.assign({ id: 1, status: 'New', published: 'Yes', match_dat
   ok(!mine.isGone() && !pcNoId.isGone(), 'events the sync did not create are untouched');
   ok(oldOne.isGone(), 'removed match is gone');
   // time moves, match cancelled
-  s.ctx.UrlFetchApp.fetch = url => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ matches: /season=2027/.test(url) ? [M({ id: 11, match_time: '14:00' }), M({ id: 13, status: 'Cancelled' })] : [] }) });
+  s.ctx.UrlFetchApp.fetch = (url) => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ matches: /season=2027/.test(url) ? [M({ id: 11, match_time: '14:00' }), M({ id: 13, status: 'Cancelled' })] : [] }) });
   const r2 = s.ctx.syncPlayCricket();
   eq([r2.updated, r2.removed, s.live().filter(e => e.getTag('pcid')).length], [1, 1, 1], 'time change updates, cancelled match removed');
-  eq(s.live().find(e => e.getTag('pcid') === '11').getStartTime().getHours(), 14, 'moved to 2pm');
+  eq(s.live().find(e => e.getTag('pcid') === '11').getStartTime().toISOString(), '2027-04-25T13:00:00.000Z', 'moved to 2pm BST');
 }
 
 /* past fixtures are ignored and past events are left alone */
@@ -152,6 +158,60 @@ const M = o => Object.assign({ id: 1, status: 'New', published: 'Yes', match_dat
   const s = setup({ 2026: [], 2027: [M({ id: 21 })] });
   const r = s.ctx.dryRunPlayCricket();
   eq([r.ok, r.created, s.live().length, s.logs.length], [true, 1, 0, 0], 'dry run reports but creates nothing');
+}
+
+/* result codes, odd ids, links, 00:00 */
+{
+  const { ctx } = setup({});
+  ['C', 'A', 'CON', 'c'].forEach(c => eq(ctx.pcMatchToEvent_(M({ result: c }), '2558'), null, 'result ' + c + ' is gone'));
+  ok(ctx.pcMatchToEvent_(M({ result: 'W' }), '2558') !== null, 'a result of W is not gone');
+  eq(ctx.pcMatchToEvent_(M({ status: 'Deleted' }), '2558'), null, 'deleted status');
+  ['__proto__', 'abc', '12345678901234', '', '1; drop'].forEach(i => eq(ctx.pcMatchToEvent_(M({ id: i }), '2558'), null, 'odd id ' + i));
+  const l = ctx.pcMatchToEvent_(M({ ground_name: 'Pitch http://evil.example/x see www.evil.example now', away_team_name: 'XI https://a.b' }), '2558');
+  ok(!/http|www.|evil/.test(l.title + l.location + l.notes), 'links are stripped (' + l.location + ' | ' + l.title + ')');
+  eq(ctx.pcMatchToEvent_(M({ match_time: '00:00' }), '2558').start, '', '00:00 is all day');
+}
+
+/* London time whatever the zone */
+{
+  const { ctx } = setup({});
+  const at = (d, t) => ctx.pcTimes_({ date: d, start: t }).start.toISOString();
+  eq(at('2027-04-25', '13:00'), '2027-04-25T12:00:00.000Z', 'BST date');
+  eq(at('2026-12-05', '13:00'), '2026-12-05T13:00:00.000Z', 'winter date');
+  eq(at('2027-03-27', '13:00'), '2027-03-27T13:00:00.000Z', 'day before clocks go forward');
+  eq(at('2027-03-28', '13:00'), '2027-03-28T12:00:00.000Z', 'clocks go forward day');
+  eq(at('2026-10-24', '12:00'), '2026-10-24T11:00:00.000Z', 'day before clocks go back');
+  eq(at('2026-10-25', '12:00'), '2026-10-25T12:00:00.000Z', 'clocks go back day');
+  eq(ctx.pcTimes_({ date: '2027-04-25', start: '13:00' }).end.toISOString(), '2027-04-25T19:00:00.000Z', 'long match is 7 hours');
+  const ad = ctx.pcTimes_({ date: '2027-04-25', start: '' });
+  ok(ad.allDay && ad.start.getFullYear() === 2027 && ad.start.getDate() === 25, 'all day fixture');
+  // a fixture moving to another date is updated in place
+  const s = setup({ 2026: [], 2027: [M({ id: 50, match_date: '25/04/2027' })] });
+  s.ctx.syncPlayCricket();
+  s.ctx.UrlFetchApp.fetch = () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ matches: [M({ id: 50, match_date: '02/05/2027' })] }) });
+  const r = s.ctx.syncPlayCricket();
+  eq([r.updated, r.created, s.live().length, s.live()[0].getStartTime().toISOString()], [1, 0, 1, '2027-05-02T12:00:00.000Z'], 'moved date updates, no duplicate');
+}
+
+/* safety limits and the time budget */
+{
+  // feed that is non-empty but drops 25 of 60: allowed by the half rule, capped at 20 removals
+  const have = n => Array.from({ length: n }, (_, i) => { const e = fakeEvent('F' + i, new Date(2027, 5, 1 + (i % 28), 12), new Date(2027, 5, 1 + (i % 28), 19)); e.setTag('src', 'play-cricket'); e.setTag('pcid', String(1000 + i)); return e; });
+  const keep = Array.from({ length: 35 }, (_, i) => M({ id: 1000 + i, match_date: String(1 + (i % 28)).padStart(2, '0') + '/06/2027' }));
+  const s = setup({ 2026: [], 2027: keep });
+  s.events.push(...have(60));
+  const r = s.ctx.syncPlayCricket();
+  eq([r.ok, r.removed, r.partial], [true, 20, true], 'removals capped at 20 a run');
+  ok(/partly done: 0 created, [0-9]+ updated, 20 removed, then stopped because/.test(s.logs[0][2]), 'partial run is logged (' + s.logs[0][2] + ')');
+  // time budget: the clock jumps 5 minutes after the first write
+  const s2 = setup({ 2026: [], 2027: [M({ id: 61 }), M({ id: 62 }), M({ id: 63 })] });
+  let clock = 0; s2.ctx.pcNow_ = () => clock;
+  const mk = s2.ctx.pcWriteEvent_; s2.ctx.pcWriteEvent_ = (e, w) => { clock += 5 * 60 * 1000; return mk(e, w); };
+  const r2 = s2.ctx.syncPlayCricket();
+  eq([r2.created, r2.partial, s2.live().length], [1, true, 1], 'stops writing after the time budget');
+  ok(/partly done: 1 created, 0 updated, 0 removed, then stopped because the time limit/.test(s2.logs[0][2]), 'time stop is logged');
+  const r3 = (() => { s2.ctx.pcNow_ = () => 0; s2.ctx.pcWriteEvent_ = mk; return s2.ctx.syncPlayCricket(); })();
+  eq([r3.created, r3.unchanged, s2.live().length], [2, 1, 3], 'the next run carries on');
 }
 
 console.log(pass + ' passed, ' + failed + ' failed');
