@@ -295,8 +295,8 @@ const termsHtml = fs.readFileSync(path.join(__dirname, '..', 'hire-terms.html'),
   ok(re.test(termsHtml), 'hire-terms.html states ' + what);
 });
 ok(!/[\u2013\u2014]/.test(termsMd) && !/[\u2013\u2014]|&mdash;|&ndash;/.test(termsHtml), 'no dashes in the hire terms');
-const confirmsMd = (termsMd.match(/\[confirm/g) || []).length, confirmsHtml = (termsHtml.match(/\[confirm/g) || []).length;
-ok(confirmsMd > 0 && confirmsMd === confirmsHtml, 'the same [confirm] items are marked in both versions (' + confirmsMd + ' and ' + confirmsHtml + ')');
+const confirmsMd = (termsMd.match(/\[confirm:/g) || []).length, confirmsHtml = (termsHtml.replace(/<!--[\s\S]*?-->/g, '').match(/\[confirm:/g) || []).length;
+ok(confirmsMd === confirmsHtml, 'the same [confirm] items are marked in both versions (' + confirmsMd + ' and ' + confirmsHtml + ')');
 const sectionsMd = (termsMd.match(/^## /gm) || []).length, sectionsHtml = (termsHtml.match(/<h2/g) || []).length;
 eq(sectionsHtml, sectionsMd, 'hire-terms.html has the same sections as HIRE-TERMS.md');
 // Every numbered clause in HIRE-TERMS.md appears word for word on the web page

@@ -2,7 +2,7 @@
 
 **Elsecar Sports & Social Club, Armroyd Lane, Elsecar, S74 8ES**
 
-Agreed by the committee in general (14 November 2026). Items marked **[confirm]** are facts the committee still needs to give. Until they do, they show as "to be confirmed" on the web page (`hire-terms.html`), so nothing unconfirmed looks final. This is a common sense set of terms, not legal advice.
+Agreed by the committee in general (14 November 2026). The last open details (free date move, set up time, kitchen, false alarms, parking and taxis) were filled in by Pete on 19 November 2026. This is a common sense set of terms, not legal advice.
 
 When anything changes here, change `hire-terms.html` to match (the tests check the main facts agree).
 
@@ -45,7 +45,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 3.1 If you want to move your booking to another date, ask us as soon as you can. A new date depends on the room being free.
 
-3.2 You can move your booking to another free date once, at no charge, if you ask at least **[confirm: how many]** days before the event. **[confirm: whether the Club allows one free move]**
+3.2 You can move your booking to another free date once, at no charge, if you ask at least 14 days before the event.
 
 3.3 Agree any change to the type of event or the number of guests with the Club before the event. Guest numbers can never go above the room's limit (section 6).
 
@@ -83,7 +83,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 7.1 Sessions are: afternoon 12pm to 5pm, evening 6pm to midnight, or the whole day (12pm to midnight).
 
-7.2 You can get into the room to decorate and set up from **[confirm: what time, for example 1 hour before your session]**.
+7.2 You can get into the room to decorate and set up from 1 hour before your session.
 
 7.3 Music must finish by **11.30pm**.
 
@@ -113,7 +113,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 9.4 You are responsible for the food you provide, including telling your guests about allergens.
 
-9.5 Tea room hirers can use the kitchen **[confirm: yes or no]**.
+9.5 Tea room hirers can use the kitchen to prepare and serve food and drink they bring. Please leave it clean and tidy.
 
 ## 10. Decorations
 
@@ -155,7 +155,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 14.3 If the room is left in an unreasonable condition, the Club may charge for the extra cleaning.
 
-14.4 If your event causes a false fire alarm call out, the Club may charge you any cost it has to pay **[confirm: whether the Club wants this rule]**.
+14.4 There is no charge if a false fire alarm goes off during your event.
 
 ## 15. Safety
 
@@ -173,7 +173,7 @@ By sending a booking request you agree to these terms. "The Club" means Elsecar 
 
 16.1 Please ask your guests to leave quietly and respect our neighbours.
 
-16.2 Parking, taxis and collection: **[confirm: where guests can park, and where taxis should wait or pick up]**.
+16.2 Parking, taxis and collection: the Club car park is pay to park. Guests can enter their car registration on the iPad at the bar, pay for parking, or park as Club members. Please ask taxis to drop off and pick up at the clubhouse entrance.
 
 ## 17. Responsibility
 
